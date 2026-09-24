@@ -368,6 +368,46 @@
         color: #b8b8b8;
       }
 
+      .permission-panel {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: grid;
+        place-items: center;
+        padding: 18px;
+        background: rgba(0, 0, 0, 0.72);
+      }
+
+      .permission-card {
+        display: grid;
+        gap: 14px;
+        width: min(520px, 100%);
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 22px;
+        background: #181818;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+      }
+
+      .permission-card h2,
+      .permission-card p {
+        margin: 0;
+      }
+
+      .permission-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .permission-list {
+        display: grid;
+        gap: 6px;
+        margin: 0;
+        padding-left: 20px;
+        color: #cfcfcf;
+      }
+
       @media (max-width: 940px) {
         .library-shell {
           grid-template-columns: 1fr;
@@ -409,6 +449,26 @@
     </style>
   </head>
   <body>
+    <section id="permission-panel" class="permission-panel" hidden>
+      <div class="permission-card" role="dialog" aria-modal="true" aria-labelledby="permission-title">
+        <h2 id="permission-title">Allow playback permissions</h2>
+        <p>
+          This lets Movie Room keep you signed in, keep the screen awake, and ask Chrome or Safari for the phone
+          permissions they support for casting.
+        </p>
+        <ul class="permission-list">
+          <li>Cookies stay enabled for the shared sign-in session.</li>
+          <li>Location and Bluetooth prompts can appear only after you tap allow.</li>
+          <li>Local network and TV discovery are handled by Chrome or Safari when you use Cast or AirPlay.</li>
+        </ul>
+        <div class="permission-actions">
+          <button id="enable-permissions" type="button">Allow permissions</button>
+          <button id="skip-permissions" class="secondary" type="button">Not now</button>
+        </div>
+        <p id="permission-status" class="status" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+
     <header class="topbar">
       <div class="brand" aria-label="Movie Room">
         <span class="brand-mark">Play</span>

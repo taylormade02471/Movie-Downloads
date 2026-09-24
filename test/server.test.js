@@ -92,6 +92,9 @@ test("exposes phone and TV playback controls", () => {
   assert.match(html, /x-webkit-airplay="allow"/);
   assert.match(html, /webkit-playsinline/);
   assert.match(html, /id="buffer-status"/);
+  assert.match(html, /id="permission-panel"/);
+  assert.match(html, /id="enable-permissions"/);
+  assert.match(html, /id="skip-permissions"/);
   assert.doesNotMatch(html, /disableremoteplayback/i);
 });
 
@@ -854,6 +857,98 @@ test("shows Chrome cast guidance when browser cast APIs are unavailable", async 
   assert.equal(castButton.textContent, "Chrome Cast Help");
   listeners.click();
   assert.match(status.textContent, /local network or Bluetooth access/i);
+});
+
+test("shows a first-run permission setup panel and saves the choice", async () => {
+  const listeners = {};
+  const localStorageValues = new Map();
+  let locationRequests = 0;
+  let bluetoothRequests = 0;
+  const permissionPanel = { hidden: true };
+  const enablePermissionsButton = {
+    disabled: false,
+    addEventListener(name, listener) {
+      listeners[`allow:${name}`] = listener;
+    },
+  };
+  const player = {
+    disableRemotePlayback: true,
+    addEventListener() {},
+    load() {},
+    removeAttribute() {},
+    setAttribute() {},
+  };
+
+  const app = createApp({
+    movieSelect: { value: "", addEventListener() {} },
+    reloadButton: { addEventListener() {} },
+    logoutButton: { addEventListener() {} },
+    searchInput: { disabled: false, addEventListener() {} },
+    passwordForm: { addEventListener() {} },
+    passwordInput: { disabled: false, removeAttribute() {}, setAttribute() {} },
+    submitButton: { disabled: false },
+    player,
+    status: { textContent: "" },
+    bufferStatus: { textContent: "", style: { setProperty() {} } },
+    loginStatus: { textContent: "" },
+    librarySummary: { textContent: "" },
+    folderShelf: { replaceChildren() {}, ownerDocument: { createElement: () => ({ addEventListener() {} }) } },
+    movieGrid: { replaceChildren() {}, ownerDocument: { createElement: () => ({ append() {}, addEventListener() {}, dataset: {} }) } },
+    permissionPanel,
+    enablePermissionsButton,
+    skipPermissionsButton: { addEventListener() {} },
+    permissionStatus: { textContent: "" },
+    castButton: { addEventListener() {} },
+    keepAwakeButton: { addEventListener() {} },
+    fullscreenButton: { addEventListener() {} },
+    authPanel: { hidden: false },
+    libraryPanel: { hidden: true },
+    fetchImpl: async (url) => {
+      if (url === "/api/session") {
+        return { ok: true, status: 200, json: async () => ({ authenticated: false, authConfigured: true }) };
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    },
+    locationOrigin: "http://127.0.0.1:3000",
+    createOption: () => ({}),
+    documentRef: { addEventListener() {}, visibilityState: "visible" },
+    navigatorRef: {
+      bluetooth: {
+        async requestDevice() {
+          bluetoothRequests += 1;
+          return {};
+        },
+      },
+      geolocation: {
+        getCurrentPosition(success) {
+          locationRequests += 1;
+          success({});
+        },
+      },
+      userAgent: "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36",
+      vendor: "Google Inc.",
+    },
+    localStorageRef: {
+      getItem(key) {
+        return localStorageValues.get(key) || null;
+      },
+      setItem(key, value) {
+        localStorageValues.set(key, value);
+      },
+    },
+  });
+
+  app.initialize();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(permissionPanel.hidden, false);
+
+  listeners["allow:click"]();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(permissionPanel.hidden, true);
+  assert.equal(locationRequests, 1);
+  assert.equal(bluetoothRequests, 1);
+  assert.equal(localStorageValues.get("movie_room_permissions_v1"), "done");
 });
 
 test("refreshes and resumes a stream after a sustained stall", async () => {

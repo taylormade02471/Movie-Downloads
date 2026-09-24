@@ -13,6 +13,10 @@ function createApp({
   librarySummary,
   folderShelf,
   movieGrid,
+  permissionPanel,
+  enablePermissionsButton,
+  skipPermissionsButton,
+  permissionStatus,
   castButton,
   keepAwakeButton,
   fullscreenButton,
@@ -23,6 +27,7 @@ function createApp({
   createOption,
   documentRef = typeof document !== "undefined" ? document : null,
   navigatorRef = typeof navigator !== "undefined" ? navigator : null,
+  localStorageRef = typeof localStorage !== "undefined" ? localStorage : null,
   mediaMetadataCtor = typeof MediaMetadata !== "undefined" ? MediaMetadata : null,
   setTimeoutImpl = (callback, delay) => setTimeout(callback, delay),
   clearTimeoutImpl = (timer) => clearTimeout(timer),
@@ -45,6 +50,7 @@ function createApp({
   let keepAwakeWanted = true;
   let safariAirPlayAvailable = false;
   const expectedLibraryCount = 16;
+  const permissionStorageKey = "movie_room_permissions_v1";
 
   function updateStatus(message) {
     status.textContent = message;
@@ -317,6 +323,99 @@ function createApp({
 
   function updateLoginStatus(message) {
     loginStatus.textContent = message;
+  }
+
+  function updatePermissionStatus(message) {
+    if (permissionStatus) {
+      permissionStatus.textContent = message;
+    }
+  }
+
+  function markPermissionPanelDone() {
+    try {
+      localStorageRef?.setItem(permissionStorageKey, "done");
+    } catch {
+      // Browsers can disable localStorage. The panel can still be dismissed for this page view.
+    }
+
+    if (permissionPanel) {
+      permissionPanel.hidden = true;
+    }
+  }
+
+  function showPermissionPanelIfNeeded() {
+    if (!permissionPanel) {
+      return;
+    }
+
+    let alreadyHandled = false;
+    try {
+      alreadyHandled = localStorageRef?.getItem(permissionStorageKey) === "done";
+    } catch {
+      alreadyHandled = false;
+    }
+
+    permissionPanel.hidden = alreadyHandled;
+    if (!alreadyHandled) {
+      updatePermissionStatus("Tap allow to let the browser show the permissions it supports.");
+    }
+  }
+
+  function requestLocationPermission() {
+    return new Promise((resolve) => {
+      if (!navigatorRef?.geolocation?.getCurrentPosition) {
+        resolve("Location is not available in this browser.");
+        return;
+      }
+
+      navigatorRef.geolocation.getCurrentPosition(
+        () => resolve("Location permission allowed."),
+        () => resolve("Location permission was not allowed or is unavailable."),
+        {
+          enableHighAccuracy: false,
+          maximumAge: 10 * 60 * 1000,
+          timeout: 6000,
+        },
+      );
+    });
+  }
+
+  async function requestBluetoothPermission() {
+    if (!navigatorRef?.bluetooth?.requestDevice) {
+      return "Bluetooth permission is not available in this browser.";
+    }
+
+    try {
+      await navigatorRef.bluetooth.requestDevice({ acceptAllDevices: true });
+      return "Bluetooth permission was allowed.";
+    } catch {
+      return "Bluetooth permission was skipped, canceled, or no device was selected.";
+    }
+  }
+
+  async function requestFirstRunPermissions() {
+    if (enablePermissionsButton) {
+      enablePermissionsButton.disabled = true;
+    }
+    updatePermissionStatus("Opening browser permission prompts...");
+
+    const results = [];
+    results.push("Cookies are allowed for this site session.");
+    results.push(await requestLocationPermission());
+    results.push(await requestBluetoothPermission());
+    if (navigatorRef?.wakeLock?.request) {
+      const wakeLockStarted = await requestWakeLock();
+      results.push(wakeLockStarted ? "Screen wake permission is ready." : "Screen wake permission was not started yet.");
+    } else {
+      results.push("Screen wake permission is not available in this browser.");
+    }
+    results.push("Chrome/Safari local network permission appears when you use Cast or AirPlay.");
+
+    updatePermissionStatus(results.join(" "));
+    markPermissionPanelDone();
+    if (enablePermissionsButton) {
+      enablePermissionsButton.disabled = false;
+    }
   }
 
   function setPasswordErrorState(hasError) {
@@ -970,6 +1069,21 @@ function createApp({
       });
     }
 
+    if (enablePermissionsButton) {
+      enablePermissionsButton.addEventListener("click", () => {
+        requestFirstRunPermissions().catch((error) => {
+          updatePermissionStatus(error.message);
+          enablePermissionsButton.disabled = false;
+        });
+      });
+    }
+
+    if (skipPermissionsButton) {
+      skipPermissionsButton.addEventListener("click", () => {
+        markPermissionPanelDone();
+      });
+    }
+
     if (castButton) {
       castButton.addEventListener("click", () => {
         promptRemotePlayback().catch((error) => {
@@ -1028,6 +1142,7 @@ function createApp({
     updateKeepAwakeButton();
     updateCastButton();
     updateBufferStatus();
+    showPermissionPanelIfNeeded();
 
     player.addEventListener("waiting", () => {
       scheduleStallRecovery("Loading more video while keeping your place…");
@@ -1190,6 +1305,10 @@ if (typeof document !== "undefined") {
     librarySummary: document.getElementById("library-summary"),
     folderShelf: document.getElementById("folder-shelf"),
     movieGrid: document.getElementById("movie-grid"),
+    permissionPanel: document.getElementById("permission-panel"),
+    enablePermissionsButton: document.getElementById("enable-permissions"),
+    skipPermissionsButton: document.getElementById("skip-permissions"),
+    permissionStatus: document.getElementById("permission-status"),
     castButton: document.getElementById("cast-tv"),
     keepAwakeButton: document.getElementById("keep-awake"),
     fullscreenButton: document.getElementById("fullscreen-player"),
