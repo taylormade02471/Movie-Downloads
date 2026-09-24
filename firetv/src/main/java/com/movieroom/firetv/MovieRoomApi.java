@@ -11,6 +11,9 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 public final class MovieRoomApi {
+    private static final int CONNECT_TIMEOUT_MS = 10_000;
+    private static final int READ_TIMEOUT_MS = 30_000;
+
     private final String baseUrl;
 
     public MovieRoomApi(String baseUrl) {
@@ -40,6 +43,8 @@ public final class MovieRoomApi {
 
     private String request(String method, String path, String bearerToken, String body) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(baseUrl + path).openConnection();
+        connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+        connection.setReadTimeout(READ_TIMEOUT_MS);
         connection.setRequestMethod(method);
         connection.setRequestProperty("Accept", "application/json");
         if (!bearerToken.isEmpty()) {

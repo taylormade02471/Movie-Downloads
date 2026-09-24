@@ -19,6 +19,8 @@ const DEFAULT_BODY_LIMIT = 8 * 1024;
 const DEFAULT_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_MAX_ATTEMPTS = 5;
+const DEFAULT_TV_PAIRING_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const DEFAULT_TV_PAIRING_RATE_LIMIT_MAX_ATTEMPTS = 10;
 const DEFAULT_CAST_PLAYBACK_TTL_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_TV_PAIRING_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_TV_DEVICE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -538,6 +540,33 @@ function createRateLimiter(store, authConfig, now = Date.now, trustProxy = false
   };
 }
 
+function createRequestRateLimiter(store, {
+  prefix,
+  windowMs,
+  maxAttempts,
+  message,
+}, now = Date.now, trustProxy = false) {
+  return {
+    async recordAndAssert(request) {
+      const key = `${prefix}${getClientAddress(request, trustProxy)}`;
+      const currentTime = now();
+      const stateJson = await store.get(key);
+      let state = stateJson ? JSON.parse(stateJson) : null;
+
+      if (!state || state.windowStartedAt + windowMs <= currentTime) {
+        state = { count: 0, windowStartedAt: currentTime };
+      }
+
+      state.count += 1;
+      await store.set(key, JSON.stringify(state), windowMs);
+
+      if (state.count > maxAttempts) {
+        throw new HttpError(429, message);
+      }
+    },
+  };
+}
+
 function createCastPlaybackManager(
   store,
   authConfig,
@@ -676,7 +705,6 @@ function createTvDeviceManager(
       const code = generatePairingCode();
       const record = {
         status: "pending",
-        code,
         codeHash: hashSecret(code, authConfig.sessionSecret),
         pollSecretHash: hashSecret(pollSecret, authConfig.sessionSecret),
         deviceLabel: String(deviceLabel || "Fire TV").trim().slice(0, 80) || "Fire TV",
@@ -798,13 +826,11 @@ function createTvDeviceManager(
         "Fire TV device token is invalid or expired.",
       );
 
-      if (
-        !record.expiresAt
-        || record.expiresAt <= now()
-        || record.revokedAt
-        || !safeCompare(record.tokenHash, hashSecret(rawSecret, authConfig.sessionSecret))
-      ) {
+      if (!record.expiresAt || record.expiresAt <= now() || record.revokedAt) {
         await store.delete(`${TV_DEVICE_PREFIX}${deviceId}`);
+        throw new HttpError(401, "Fire TV device token is invalid or expired.");
+      }
+      if (!safeCompare(record.tokenHash, hashSecret(rawSecret, authConfig.sessionSecret))) {
         throw new HttpError(401, "Fire TV device token is invalid or expired.");
       }
 
@@ -868,6 +894,14 @@ function createAppContext(options = {}) {
     pairingTtlMs: options.tvPairingTtlMs,
     deviceTtlMs: options.tvDeviceTtlMs,
   });
+  const tvPairingRateLimiter = createRequestRateLimiter(store, {
+    prefix: "tv-pairing-attempts:",
+    windowMs: options.tvPairingRateLimitWindowMs
+      ?? parseNumber(env.TV_PAIRING_RATE_LIMIT_WINDOW_MS, DEFAULT_TV_PAIRING_RATE_LIMIT_WINDOW_MS),
+    maxAttempts: options.tvPairingRateLimitMaxAttempts
+      ?? parseNumber(env.TV_PAIRING_RATE_LIMIT_MAX_ATTEMPTS, DEFAULT_TV_PAIRING_RATE_LIMIT_MAX_ATTEMPTS),
+    message: "Too many Fire TV pairing codes were requested. Please try again later.",
+  }, now, trustProxy);
 
   return {
     appOrigin,
@@ -877,6 +911,7 @@ function createAppContext(options = {}) {
     publicDir: path.resolve(options.publicDir || path.join(__dirname, "public")),
     sessionManager: createSessionManager(store, authConfig, now, trustProxy, storageReady),
     rateLimiter: createRateLimiter(store, authConfig, now, trustProxy),
+    tvPairingRateLimiter,
     trustProxy,
     tvDeviceManager,
   };
@@ -955,6 +990,7 @@ function createRequestHandler(options = {}) {
       }
 
       if (request.method === "POST" && url.pathname === "/api/tv/pairings") {
+        await context.tvPairingRateLimiter.recordAndAssert(request);
         const body = await readJsonBody(request, context.authConfig.bodyLimit);
         const pairing = await context.tvDeviceManager.createPairing({
           deviceLabel: typeof body.deviceLabel === "string" ? body.deviceLabel : "",

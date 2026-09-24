@@ -27,8 +27,7 @@ public class MainActivity extends Activity {
     private MovieRoomApi api;
     private LinearLayout root;
     private ExoPlayer player;
-    private String pendingPairingId = "";
-    private String pendingPollSecret = "";
+    private int pairingGeneration = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -88,6 +87,7 @@ public class MainActivity extends Activity {
     }
 
     private void showPairingScreen() {
+        final int generation = ++pairingGeneration;
         setScreen();
         root.addView(text("Movie Room Fire TV", 34));
         TextView status = text("Creating a pairing code...", 24);
@@ -100,38 +100,75 @@ public class MainActivity extends Activity {
 
         new Thread(() -> {
             try {
-                pendingPollSecret = randomSecret();
-                MovieRoomModels.Pairing pairing = api.createPairing("Fire TV", pendingPollSecret);
-                pendingPairingId = pairing.pairingId;
-                handler.post(() -> status.setText("On your Mac, open Movie Room, choose Pair Fire TV, and enter: " + pairing.code));
-                pollPairing(status);
+                String pollSecret = randomSecret();
+                MovieRoomModels.Pairing pairing = api.createPairing("Fire TV", pollSecret);
+                if (generation != pairingGeneration) {
+                    return;
+                }
+                handler.post(() -> {
+                    if (generation == pairingGeneration) {
+                        status.setText("On your Mac, open Movie Room, choose Pair Fire TV, and enter: " + pairing.code);
+                    }
+                });
+                pollPairing(pairing.pairingId, pollSecret, status, generation);
             } catch (Exception error) {
-                handler.post(() -> status.setText("Could not create a code. Check Wi-Fi and try New Code."));
+                handler.post(() -> {
+                    if (generation == pairingGeneration) {
+                        status.setText("Could not create a code. Check Wi-Fi and try New Code.");
+                    }
+                });
             }
         }).start();
     }
 
-    private void pollPairing(TextView status) {
+    private void pollPairing(String pairingId, String pollSecret, TextView status, int generation) {
+        if (generation != pairingGeneration) {
+            return;
+        }
         handler.postDelayed(() -> new Thread(() -> {
+            if (generation != pairingGeneration) {
+                return;
+            }
             try {
-                MovieRoomModels.PairingStatus pairingStatus = api.pollPairing(pendingPairingId, pendingPollSecret);
-                if ("approved".equals(pairingStatus.status) && !pairingStatus.deviceToken.isEmpty()) {
-                    tokenStore.saveDeviceToken(pairingStatus.deviceToken);
-                    handler.post(this::showLibraryScreen);
+                MovieRoomModels.PairingStatus pairingStatus = api.pollPairing(pairingId, pollSecret);
+                if (generation != pairingGeneration) {
                     return;
                 }
-                handler.post(() -> pollPairing(status));
+                if ("approved".equals(pairingStatus.status) && !pairingStatus.deviceToken.isEmpty()) {
+                    tokenStore.saveDeviceToken(pairingStatus.deviceToken);
+                    handler.post(() -> {
+                        if (generation == pairingGeneration) {
+                            showLibraryScreen();
+                        }
+                    });
+                    return;
+                }
+                handler.post(() -> pollPairing(pairingId, pollSecret, status, generation));
             } catch (MovieRoomApi.MovieRoomApiException error) {
-                handler.post(() -> status.setText(error.statusCode == 410
-                        ? "Code expired. Choose New Code."
-                        : "Waiting for approval. Keep this screen open."));
+                handler.post(() -> {
+                    if (generation != pairingGeneration) {
+                        return;
+                    }
+                    if (error.statusCode == 410 || error.statusCode == 401) {
+                        status.setText("Code expired. Choose New Code.");
+                        return;
+                    }
+                    status.setText("Waiting for approval. Keep this screen open.");
+                    pollPairing(pairingId, pollSecret, status, generation);
+                });
             } catch (Exception error) {
-                handler.post(() -> status.setText("Network problem. Check Wi-Fi and keep this screen open."));
+                handler.post(() -> {
+                    if (generation == pairingGeneration) {
+                        status.setText("Network problem. Check Wi-Fi and keep this screen open.");
+                        pollPairing(pairingId, pollSecret, status, generation);
+                    }
+                });
             }
         }).start(), 2500);
     }
 
     private void showLibraryScreen() {
+        pairingGeneration += 1;
         setScreen();
         root.addView(text("Movie Room", 34));
         TextView status = text("Loading library...", 22);

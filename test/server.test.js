@@ -353,6 +353,10 @@ test("pairs a Fire TV through a browser-approved one-time code", async (t) => {
   assert.equal(created.expiresAt, clock.now + 10 * 60 * 1000);
   assert.equal(Object.hasOwn(created, "deviceToken"), false);
 
+  const storedPairing = JSON.parse(await store.get(`tv-pairing:${created.pairingId}`));
+  assert.equal(Object.hasOwn(storedPairing, "code"), false);
+  assert.match(storedPairing.codeHash, /^[A-Za-z0-9_-]{43}$/);
+
   const pendingResponse = await fetch(`${origin}/api/tv/pairings/${created.pairingId}`, {
     headers: { Authorization: `Bearer ${pollSecret}` },
   });
@@ -493,6 +497,35 @@ test("requires a signed-in same-origin browser to approve a Fire TV", async (t) 
   assert.equal(crossSiteResponse.status, 403);
 });
 
+test("throttles anonymous Fire TV pairing creation", async (t) => {
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  const server = await startServer(createAuthOptions({
+    moviesDir,
+    publicDir,
+    tvPairingRateLimitMaxAttempts: 1,
+    tvPairingRateLimitWindowMs: 60_000,
+  }));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const origin = `http://127.0.0.1:${port}`;
+  const createPairing = (pollSecret) => fetch(`${origin}/api/tv/pairings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceLabel: "Rate Test Fire TV", pollSecret }),
+  });
+
+  const firstResponse = await createPairing("first-poll-secret");
+  assert.equal(firstResponse.status, 201);
+
+  const throttledResponse = await createPairing("second-poll-secret");
+  assert.equal(throttledResponse.status, 429);
+});
+
 test("paired Fire TV lists the library and receives a cookie-free playback ticket", async (t) => {
   const { root, moviesDir, publicDir } = createTempLibrary();
   fs.writeFileSync(path.join(moviesDir, "Family-Night.mp4"), "abcdef");
@@ -510,6 +543,12 @@ test("paired Fire TV lists the library and receives a cookie-free playback ticke
 
   const anonymousLibraryResponse = await fetch(`${origin}/api/tv/library`);
   assert.equal(anonymousLibraryResponse.status, 401);
+
+  const [deviceId] = deviceToken.split(".");
+  const badTokenResponse = await fetch(`${origin}/api/tv/library`, {
+    headers: { Authorization: `Bearer ${deviceId}.wrong-secret` },
+  });
+  assert.equal(badTokenResponse.status, 401);
 
   const libraryResponse = await fetch(`${origin}/api/tv/library`, {
     headers: { Authorization: `Bearer ${deviceToken}` },

@@ -3,6 +3,8 @@
 .gradle/
 **/build/
 local.properties
+node_modules/
+movies/
 .agents/
 skills-lock.json
 0
