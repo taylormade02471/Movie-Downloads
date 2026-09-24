@@ -7,7 +7,7 @@ A lightweight browser app for browsing and streaming a shared movie library behi
 - Password-protected catalog access with signed HttpOnly sessions
 - Recursive movie discovery for local files and OneDrive-backed libraries
 - Server-issued playback links so the browser can stream directly from the configured provider
-- Vercel-compatible request handling with optional KV-backed sessions, throttling, and token persistence
+- Vercel-compatible request handling with durable KV-backed sessions, throttling, and token persistence
 
 ## Supported providers
 
@@ -31,7 +31,7 @@ Use this for Vercel hosting after you have:
 1. A Microsoft app registration with delegated read access for the target OneDrive account
 2. A refresh token for that app/account
 3. The target `driveId` and root folder `itemId`
-4. Optional KV REST credentials if you want sessions, login throttling, and rotated refresh tokens to persist across serverless instances instead of using in-memory fallbacks
+4. KV REST credentials so sessions, login throttling, and rotated refresh tokens persist across Vercel function instances
 
 Copy `.env.example` to a local `.env` file or configure the same values in Vercel:
 
@@ -59,6 +59,8 @@ The app never exposes the shared password, session secret, or OneDrive credentia
 
 ## Getting started
 
+Use Node.js 22.9 or newer. `npm start` loads a local `.env` file when one exists and otherwise uses the current process environment.
+
 1. Put movie files such as `.mp4`, `.m4v`, `.mov`, `.webm`, `.ogg`, or `.mkv` into the project’s `movies/` folder for local development.
 2. Configure the required environment variables.
 3. Start the app:
@@ -76,6 +78,7 @@ The app never exposes the shared password, session secret, or OneDrive credentia
 - No custom `vercel.json` routing is required for this layout: static assets stay at the site root and API requests go through `/api/*`
 - Set `APP_ORIGIN` to the exact deployed site origin for CSRF checks
 - `TRUST_PROXY=true` is an optional override for non-Vercel trusted-proxy deployments; Vercel is auto-detected
+- Configure both `KV_REST_API_URL` and `KV_REST_API_TOKEN`; Vercel authentication fails closed without durable shared storage
 - Protected API responses use `Cache-Control: private, no-store`
 - For production, configure the environment variables in Vercel before testing
 
@@ -89,9 +92,9 @@ The app never exposes the shared password, session secret, or OneDrive credentia
 This repository now includes the app-side OneDrive integration points, but the deployment still needs private setup values that are intentionally not stored in Git:
 
 - The real shared password in `MOVIE_PASSWORD`
-- A strong random `SESSION_SECRET`
+- A randomly generated `SESSION_SECRET` of at least 32 UTF-8 bytes
 - A Microsoft app registration and refresh token
 - The correct `ONEDRIVE_DRIVE_ID` and `ONEDRIVE_ROOT_ITEM_ID`
-- KV REST credentials for durable Vercel session/throttle/token storage
+- KV REST credentials for required Vercel session/throttle/token storage
 
 If those values are missing, protected routes fail closed instead of allowing anonymous access.

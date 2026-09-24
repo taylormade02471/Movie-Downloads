@@ -14,6 +14,10 @@ function createApp({
   locationOrigin,
   createOption,
 }) {
+  let playbackRefreshInProgress = false;
+  let playbackRetryUsed = false;
+  let resumeAfterRefresh = null;
+
   function updateStatus(message) {
     status.textContent = message;
   }
@@ -120,7 +124,12 @@ function createApp({
     return movies;
   }
 
-  async function playSelectedMovie() {
+  async function playSelectedMovie({ isRefresh = false } = {}) {
+    if (!isRefresh) {
+      playbackRetryUsed = false;
+      resumeAfterRefresh = null;
+    }
+
     const movieId = movieSelect.value;
     if (!movieId) {
       updateStatus("Select a movie to start streaming.");
@@ -222,7 +231,10 @@ function createApp({
     }
     if (!movies.length) {
       updateStatus("No movies found yet. Add supported video files to the active movie provider.");
+      return;
     }
+
+    await playSelectedMovie();
   }
 
   async function handleLogout() {
@@ -289,12 +301,55 @@ function createApp({
       updateStatus("Streaming now.");
     });
 
+    player.addEventListener("loadedmetadata", () => {
+      if (!resumeAfterRefresh) {
+        return;
+      }
+
+      const { position, shouldPlay } = resumeAfterRefresh;
+      resumeAfterRefresh = null;
+
+      if (position > 0 && Number.isFinite(player.duration)) {
+        player.currentTime = Math.min(position, Math.max(player.duration - 0.1, 0));
+      }
+
+      if (shouldPlay && typeof player.play === "function") {
+        const playPromise = player.play();
+        if (playPromise && typeof playPromise.catch === "function") {
+          playPromise.catch(() => {});
+        }
+      }
+    });
+
     player.addEventListener("stalled", () => {
       updateStatus("Connection slowed down. Waiting for more buffered video…");
     });
 
     player.addEventListener("error", () => {
-      updateStatus("This movie could not be played in the browser.");
+      if (!movieSelect.value || playbackRetryUsed || playbackRefreshInProgress) {
+        if (!playbackRefreshInProgress) {
+          resumeAfterRefresh = null;
+          updateStatus("This movie could not be played in the browser.");
+        }
+        return;
+      }
+
+      playbackRetryUsed = true;
+      playbackRefreshInProgress = true;
+      resumeAfterRefresh = {
+        position: Number.isFinite(player.currentTime) ? player.currentTime : 0,
+        shouldPlay: !player.paused && !player.ended,
+      };
+      updateStatus("Refreshing the secure playback link…");
+
+      playSelectedMovie({ isRefresh: true })
+        .catch((error) => {
+          resumeAfterRefresh = null;
+          updateStatus(error.message);
+        })
+        .finally(() => {
+          playbackRefreshInProgress = false;
+        });
     });
 
     loadSession()

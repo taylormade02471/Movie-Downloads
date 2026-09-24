@@ -74,6 +74,12 @@ test("serves the watch page and protects the movie catalog", async (t) => {
   assert.equal(moviesResponse.status, 401);
 });
 
+test("preloads only movie metadata before the viewer presses play", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+  assert.match(html, /<video[\s\S]*preload="metadata"[\s\S]*><\/video>/);
+  assert.doesNotMatch(html, /preload="auto"/);
+});
+
 test("logs in, lists nested local movies, resolves playback, and logs out", async (t) => {
   const { root, moviesDir, publicDir } = createTempLibrary();
   fs.writeFileSync(path.join(moviesDir, "Collections", "Family-Night.mp4"), "abcdef");
@@ -201,6 +207,56 @@ test("throttles repeated failed logins", async () => {
     server.close();
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("fails closed on Vercel when durable session storage is not configured", async (t) => {
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  const server = await startServer(createAuthOptions({
+    moviesDir,
+    publicDir,
+    env: {
+      MOVIE_PROVIDER: "local",
+      VERCEL: "1",
+    },
+  }));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const sessionResponse = await fetch(`http://127.0.0.1:${port}/api/session`);
+  assert.equal(sessionResponse.status, 200);
+  assert.deepEqual(await sessionResponse.json(), {
+    authenticated: false,
+    authConfigured: false,
+    expiresAt: null,
+    provider: "local",
+  });
+
+  const loginResponse = await login(port);
+  assert.equal(loginResponse.status, 503);
+});
+
+test("fails closed when the session signing secret is too short", async (t) => {
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  const server = await startServer(createAuthOptions({
+    moviesDir,
+    publicDir,
+    auth: { sessionSecret: "too-short" },
+  }));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const sessionResponse = await fetch(`http://127.0.0.1:${port}/api/session`);
+  assert.equal(sessionResponse.status, 200);
+  assert.equal((await sessionResponse.json()).authConfigured, false);
+  assert.equal((await login(port)).status, 503);
 });
 
 test("supports partial content requests for background buffering and seeking", async (t) => {
@@ -369,9 +425,206 @@ test("surfaces movie library load failures in the status message", async () => {
   assert.equal(status.textContent, "Unable to load movie library.");
 });
 
+test("starts the selected movie after a successful login", async () => {
+  const movieSelect = {
+    value: "",
+    innerHTML: "",
+    disabled: true,
+    addEventListener() {},
+    appendChild(option) {
+      if (!this.value) {
+        this.value = option.value;
+      }
+    },
+  };
+  const reloadButton = { addEventListener() {} };
+  const logoutButton = { addEventListener() {} };
+  const passwordForm = { addEventListener() {} };
+  const passwordInput = {
+    value: "lowercase",
+    disabled: false,
+    removeAttribute() {},
+    select() {},
+    setAttribute() {},
+  };
+  const submitButton = { disabled: false };
+  const player = {
+    src: "",
+    load() {},
+    addEventListener() {},
+    removeAttribute() {},
+  };
+  const status = { textContent: "" };
+  const loginStatus = { focus() {}, textContent: "" };
+  const authPanel = { hidden: false };
+  const libraryPanel = { hidden: true };
+  const requests = [];
+
+  const app = createApp({
+    movieSelect,
+    reloadButton,
+    logoutButton,
+    passwordForm,
+    passwordInput,
+    submitButton,
+    player,
+    status,
+    loginStatus,
+    authPanel,
+    libraryPanel,
+    fetchImpl: async (url, options = {}) => {
+      requests.push({ url, options });
+      if (url === "/api/login") {
+        return { ok: true, status: 204 };
+      }
+      if (url === "/api/movies") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ([
+            { id: "movie-1", title: "Movie One", folder: "", size: 1024 },
+          ]),
+        };
+      }
+      if (url === "/api/playback/movie-1") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ url: "https://download.example/movie-1" }),
+        };
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    },
+    locationOrigin: "http://127.0.0.1:3000",
+    createOption: () => ({}),
+  });
+
+  await app.handleLogin({ preventDefault() {} });
+
+  assert.equal(player.src, "https://download.example/movie-1");
+  assert.equal(status.textContent, "Connecting to stream and buffering playback…");
+  assert.deepEqual(
+    requests.map((request) => request.url),
+    ["/api/login", "/api/movies", "/api/playback/movie-1"],
+  );
+});
+
+test("refreshes a temporary playback link once after a player error", async () => {
+  const listeners = {};
+  let resumedPlayCalls = 0;
+  const movieSelect = {
+    value: "",
+    innerHTML: "",
+    disabled: true,
+    addEventListener(name, listener) {
+      listeners[`select:${name}`] = listener;
+    },
+    appendChild(option) {
+      if (!this.value) {
+        this.value = option.value;
+      }
+    },
+  };
+  const reloadButton = { addEventListener() {} };
+  const logoutButton = { addEventListener() {} };
+  const passwordForm = { addEventListener() {} };
+  const passwordInput = {
+    value: "",
+    disabled: false,
+    removeAttribute() {},
+    select() {},
+    setAttribute() {},
+  };
+  const submitButton = { disabled: false };
+  const player = {
+    src: "",
+    currentTime: 42,
+    duration: 120,
+    paused: false,
+    ended: false,
+    load() {},
+    play: async () => {
+      resumedPlayCalls += 1;
+    },
+    addEventListener(name, listener) {
+      listeners[`player:${name}`] = listener;
+    },
+    removeAttribute() {},
+  };
+  const status = { textContent: "" };
+  const loginStatus = { focus() {}, textContent: "" };
+  const authPanel = { hidden: false };
+  const libraryPanel = { hidden: true };
+  let playbackRequests = 0;
+
+  const app = createApp({
+    movieSelect,
+    reloadButton,
+    logoutButton,
+    passwordForm,
+    passwordInput,
+    submitButton,
+    player,
+    status,
+    loginStatus,
+    authPanel,
+    libraryPanel,
+    fetchImpl: async (url) => {
+      if (url === "/api/session") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ authenticated: true, authConfigured: true }),
+        };
+      }
+      if (url === "/api/movies") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ([
+            { id: "movie-1", title: "Movie One", folder: "", size: 1024 },
+          ]),
+        };
+      }
+      if (url === "/api/playback/movie-1") {
+        playbackRequests += 1;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ url: `https://download.example/movie-1-${playbackRequests}` }),
+        };
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    },
+    locationOrigin: "http://127.0.0.1:3000",
+    createOption: () => ({}),
+  });
+
+  app.initialize();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(player.src, "https://download.example/movie-1-1");
+
+  listeners["player:error"]();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(player.src, "https://download.example/movie-1-2");
+  assert.equal(playbackRequests, 2);
+
+  player.currentTime = 0;
+  listeners["player:loadedmetadata"]();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(player.currentTime, 42);
+  assert.equal(resumedPlayCalls, 1);
+
+  listeners["player:error"]();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(playbackRequests, 2);
+  assert.equal(status.textContent, "This movie could not be played in the browser.");
+});
+
 test("returns 403 for unreadable movie streams on HEAD requests", async (t) => {
   if (process.platform === "win32") {
     t.skip("POSIX-style permission checks are not reliable on Windows.");
+    return;
   }
 
   const { root, moviesDir, publicDir } = createTempLibrary();
@@ -477,6 +730,7 @@ test("recursively lists OneDrive items and resolves fresh playback links", async
   });
   assert.equal(await store.get("onedrive:refresh-token"), "rotated-token");
   assert.match(requests[0].url, /oauth2\/v2\.0\/token/);
+  assert.equal(requests[0].options.body.get("scope"), "offline_access Files.Read");
 });
 
 test("surfaces a OneDrive token refresh failure", async () => {
@@ -503,6 +757,55 @@ test("surfaces a OneDrive token refresh failure", async () => {
   );
 });
 
+test("refreshes and retries once when Microsoft Graph rejects a cached access token", async () => {
+  let tokenRequests = 0;
+  let childrenRequests = 0;
+
+  const provider = createOneDriveProvider({
+    env: {
+      ONEDRIVE_CLIENT_ID: "client-id",
+      ONEDRIVE_CLIENT_SECRET: "client-secret",
+      ONEDRIVE_REDIRECT_URI: "http://localhost/callback",
+      ONEDRIVE_REFRESH_TOKEN: "refresh-token",
+      ONEDRIVE_DRIVE_ID: "drive-id",
+      ONEDRIVE_ROOT_ITEM_ID: "root-item",
+    },
+    store: new MemoryStore(),
+    fetchImpl: async (url, options = {}) => {
+      if (String(url).includes("/oauth2/v2.0/token")) {
+        tokenRequests += 1;
+        return {
+          ok: true,
+          json: async () => ({
+            access_token: `access-token-${tokenRequests}`,
+            expires_in: 3600,
+          }),
+        };
+      }
+
+      childrenRequests += 1;
+      if (childrenRequests === 2 && options.headers.Authorization === "Bearer access-token-1") {
+        return { ok: false, status: 401 };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [
+            { id: "movie-1", name: "Movie-One.mp4", file: {}, size: 1024 },
+          ],
+        }),
+      };
+    },
+  });
+
+  assert.equal((await provider.listMovies()).length, 1);
+  assert.equal((await provider.listMovies()).length, 1);
+  assert.equal(tokenRequests, 2);
+  assert.equal(childrenRequests, 3);
+});
+
 test("rejects a OneDrive playback response without a usable file url", async () => {
   const provider = createOneDriveProvider({
     env: {
@@ -525,6 +828,17 @@ test("rejects a OneDrive playback response without a usable file url", async () 
         };
       }
 
+      if (String(url).includes("/children")) {
+        return {
+          ok: true,
+          json: async () => ({
+            value: [
+              { id: "movie-1", name: "Movie-One.mp4", file: {}, size: 1024 },
+            ],
+          }),
+        };
+      }
+
       return {
         ok: true,
         json: async () => ({
@@ -539,5 +853,58 @@ test("rejects a OneDrive playback response without a usable file url", async () 
   await assert.rejects(
     provider.resolvePlayback("movie-1"),
     /did not return a playback url/i,
+  );
+});
+
+test("rejects OneDrive playback ids outside the configured movie folder", async () => {
+  const provider = createOneDriveProvider({
+    env: {
+      ONEDRIVE_CLIENT_ID: "client-id",
+      ONEDRIVE_CLIENT_SECRET: "client-secret",
+      ONEDRIVE_REDIRECT_URI: "http://localhost/callback",
+      ONEDRIVE_REFRESH_TOKEN: "refresh-token",
+      ONEDRIVE_DRIVE_ID: "drive-id",
+      ONEDRIVE_ROOT_ITEM_ID: "root-item",
+    },
+    store: new MemoryStore(),
+    fetchImpl: async (url) => {
+      const requestUrl = String(url);
+
+      if (requestUrl.includes("/oauth2/v2.0/token")) {
+        return {
+          ok: true,
+          json: async () => ({
+            access_token: "access-token",
+            expires_in: 3600,
+          }),
+        };
+      }
+
+      if (requestUrl.includes("/root-item/children")) {
+        return {
+          ok: true,
+          json: async () => ({
+            value: [
+              { id: "allowed-movie", name: "Allowed.mp4", file: {}, size: 1024 },
+            ],
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({
+          id: "outside-movie",
+          name: "Private-Outside-Folder.mp4",
+          file: {},
+          "@microsoft.graph.downloadUrl": "https://download.example/private",
+        }),
+      };
+    },
+  });
+
+  await assert.rejects(
+    provider.resolvePlayback("outside-movie"),
+    /not in the configured movie folder/i,
   );
 });

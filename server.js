@@ -131,11 +131,8 @@ function decodeSignedValue(value, secret) {
 }
 
 function safeCompare(value, expected) {
-  const left = Buffer.from(value || "", "utf8");
-  const right = Buffer.from(expected || "", "utf8");
-  if (left.length !== right.length) {
-    return false;
-  }
+  const left = crypto.createHash("sha256").update(value || "", "utf8").digest();
+  const right = crypto.createHash("sha256").update(expected || "", "utf8").digest();
   return crypto.timingSafeEqual(left, right);
 }
 
@@ -347,13 +344,23 @@ function buildAuthConfig(options = {}) {
   };
 }
 
-function createSessionManager(store, authConfig, now = Date.now, trustProxy = false) {
+function createSessionManager(
+  store,
+  authConfig,
+  now = Date.now,
+  trustProxy = false,
+  storageReady = true,
+) {
   const prefix = "session:";
   const ttlSeconds = Math.ceil(authConfig.sessionTtlMs / 1000);
 
   return {
     isConfigured() {
-      return Boolean(authConfig.password && authConfig.sessionSecret);
+      return Boolean(
+        authConfig.password
+        && Buffer.byteLength(authConfig.sessionSecret, "utf8") >= 32
+        && storageReady,
+      );
     },
     async create(secure) {
       const sessionId = crypto.randomBytes(24).toString("base64url");
@@ -511,13 +518,14 @@ function createAppContext(options = {}) {
     || env.APP_ORIGIN
     || (env.VERCEL_URL ? `https://${env.VERCEL_URL}` : "");
   const trustProxy = options.trustProxy ?? (env.TRUST_PROXY === "true" || Boolean(env.VERCEL));
+  const storageReady = !env.VERCEL || store.durable === true;
 
   return {
     appOrigin,
     authConfig,
     provider,
     publicDir: path.resolve(options.publicDir || path.join(__dirname, "public")),
-    sessionManager: createSessionManager(store, authConfig, now, trustProxy),
+    sessionManager: createSessionManager(store, authConfig, now, trustProxy, storageReady),
     rateLimiter: createRateLimiter(store, authConfig, now, trustProxy),
     trustProxy,
   };
