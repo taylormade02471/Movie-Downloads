@@ -92,6 +92,9 @@ test("exposes phone and TV playback controls", () => {
   assert.match(html, /x-webkit-airplay="allow"/);
   assert.match(html, /webkit-playsinline/);
   assert.match(html, /id="buffer-status"/);
+  assert.match(html, /id="tv-guide-steps"/);
+  assert.match(html, /id="tv-guide-status"/);
+  assert.match(html, /iPhone to TV/);
   assert.match(html, /id="permission-panel"/);
   assert.match(html, /id="enable-permissions"/);
   assert.match(html, /id="skip-permissions"/);
@@ -857,6 +860,93 @@ test("shows Chrome cast guidance when browser cast APIs are unavailable", async 
   assert.equal(castButton.textContent, "Chrome Cast Help");
   listeners.click();
   assert.match(status.textContent, /local network or Bluetooth access/i);
+});
+
+test("shows iPhone AirPlay guidance and opens the Safari picker", async () => {
+  const listeners = {};
+  let airPlayPickerOpened = 0;
+  const guideSteps = [];
+  const ownerDocument = {
+    createElement: () => ({ textContent: "" }),
+  };
+  const tvGuideSteps = {
+    ownerDocument,
+    replaceChildren() {
+      guideSteps.length = 0;
+    },
+    append(item) {
+      guideSteps.push(item.textContent);
+    },
+  };
+  const player = {
+    disableRemotePlayback: true,
+    webkitShowPlaybackTargetPicker() {
+      airPlayPickerOpened += 1;
+    },
+    addEventListener() {},
+    load() {},
+    removeAttribute() {},
+    setAttribute() {},
+  };
+  const status = { textContent: "" };
+  const castButton = {
+    disabled: true,
+    textContent: "",
+    addEventListener(name, listener) {
+      listeners[name] = listener;
+    },
+  };
+  const tvGuideStatus = { textContent: "" };
+
+  const app = createApp({
+    movieSelect: { value: "", addEventListener() {} },
+    reloadButton: { addEventListener() {} },
+    logoutButton: { addEventListener() {} },
+    searchInput: { disabled: false, addEventListener() {} },
+    passwordForm: { addEventListener() {} },
+    passwordInput: { disabled: false, removeAttribute() {}, setAttribute() {} },
+    submitButton: { disabled: false },
+    player,
+    status,
+    bufferStatus: { textContent: "", style: { setProperty() {} } },
+    loginStatus: { textContent: "" },
+    librarySummary: { textContent: "" },
+    folderShelf: { replaceChildren() {}, ownerDocument: { createElement: () => ({ addEventListener() {} }) } },
+    movieGrid: { replaceChildren() {}, ownerDocument: { createElement: () => ({ append() {}, addEventListener() {}, dataset: {} }) } },
+    castButton,
+    tvGuideSteps,
+    tvGuideStatus,
+    keepAwakeButton: { addEventListener() {} },
+    fullscreenButton: { addEventListener() {} },
+    authPanel: { hidden: false },
+    libraryPanel: { hidden: true },
+    fetchImpl: async (url) => {
+      if (url === "/api/session") {
+        return { ok: true, status: 200, json: async () => ({ authenticated: false, authConfigured: true }) };
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    },
+    locationOrigin: "http://127.0.0.1:3000",
+    createOption: () => ({}),
+    documentRef: { addEventListener() {}, visibilityState: "visible" },
+    navigatorRef: {
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 Version/18.6 Mobile/15E148 Safari/604.1",
+      vendor: "Apple Computer, Inc.",
+      platform: "iPhone",
+      maxTouchPoints: 5,
+    },
+  });
+
+  app.initialize();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(player.disableRemotePlayback, false);
+  assert.equal(castButton.textContent, "Safari AirPlay");
+  assert.match(tvGuideStatus.textContent, /AirPlay is available/i);
+  assert.match(guideSteps.join(" "), /same Wi-Fi/i);
+  listeners.click();
+  assert.equal(airPlayPickerOpened, 1);
+  assert.match(status.textContent, /Apple TV or AirPlay TV/i);
 });
 
 test("shows a first-run permission setup panel and saves the choice", async () => {

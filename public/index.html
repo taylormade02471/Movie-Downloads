@@ -224,6 +224,35 @@
         isolation: isolate;
       }
 
+      .tv-guide {
+        display: grid;
+        gap: 8px;
+        max-width: 760px;
+        border: 1px solid #2c2c2c;
+        border-radius: 12px;
+        padding: 12px;
+        background: #121212;
+      }
+
+      .tv-guide h2 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .tv-guide ol {
+        margin: 0;
+        padding-left: 22px;
+        color: #d7d7d7;
+      }
+
+      .tv-guide li + li {
+        margin-top: 4px;
+      }
+
+      .tv-guide .status {
+        margin: 0;
+      }
+
       .controls {
         display: grid;
         grid-template-columns: minmax(220px, 1fr) auto auto;
@@ -535,6 +564,18 @@
             </div>
             <p id="buffer-status" class="buffer-status">Buffer target: 0 seconds ready of 5 minutes.</p>
             <p class="detail">Smooth playback loads the selected movie ahead inside this page and may use more data.</p>
+            <section class="tv-guide" aria-labelledby="tv-guide-title">
+              <h2 id="tv-guide-title">iPhone to TV</h2>
+              <ol id="tv-guide-steps">
+                <li>Connect the iPhone and Apple TV or AirPlay TV to the same Wi-Fi network.</li>
+                <li>Open this page in Safari, sign in, and start the movie.</li>
+                <li>Tap Safari AirPlay above, or tap the AirPlay icon inside the video controls, then choose the TV.</li>
+                <li>Keep Safari open on the phone while the TV plays.</li>
+              </ol>
+              <p id="tv-guide-status" class="status" role="status" aria-live="polite">
+                iPhone works best through Safari AirPlay. Android works best through Chrome Cast when Chrome shows it.
+              </p>
+            </section>
             <p id="status" class="status" role="status" aria-live="polite">Checking session...</p>
           </div>
 

@@ -18,6 +18,8 @@ function createApp({
   skipPermissionsButton,
   permissionStatus,
   castButton,
+  tvGuideSteps,
+  tvGuideStatus,
   keepAwakeButton,
   fullscreenButton,
   authPanel,
@@ -264,19 +266,69 @@ function createApp({
   function browserCastInstructions() {
     const info = browserInfo();
     if (info.isSafari || info.isIOS) {
-      return "Safari controls AirPlay itself: start the movie, tap the video controls, then tap the AirPlay icon and choose your TV. Allow local network or Bluetooth access if iPhone asks. If the icon is missing, open this page in Safari and make sure the Apple TV or AirPlay TV is on the same Wi-Fi.";
+      return "iPhone TV playback uses Safari AirPlay: keep the iPhone and Apple TV or AirPlay TV on the same Wi-Fi, start the movie, then tap Safari AirPlay or the AirPlay icon in the video controls. Keep Safari open while the TV plays.";
     }
     if (info.isChromium || info.isAndroid) {
-      return "Chrome controls casting itself: start the movie, then open Chrome's menu and choose Cast, or use the Cast icon if Chrome shows one. Allow local network or Bluetooth access if Chrome asks, pick your TV, and keep this browser open as the controller.";
+      return "Android TV playback uses Chrome Cast when Chrome exposes it: keep the phone and TV or Chromecast on the same Wi-Fi, start the movie, open Chrome's Cast option, allow local network or Bluetooth access if Chrome asks, then pick the TV. Keep Chrome open as the controller.";
     }
     return "Start the movie, then use your browser's Cast, AirPlay, or screen-mirroring option. Allow local network or Bluetooth access if the browser asks. The page keeps the video loaded here so your browser can hand it to the TV.";
+  }
+
+  function replaceGuideSteps(steps) {
+    if (!tvGuideSteps?.ownerDocument) {
+      return;
+    }
+
+    tvGuideSteps.replaceChildren();
+    for (const step of steps) {
+      const item = tvGuideSteps.ownerDocument.createElement("li");
+      item.textContent = step;
+      tvGuideSteps.append(item);
+    }
+  }
+
+  function updateTvGuide() {
+    const info = browserInfo();
+    if (info.isSafari || info.isIOS) {
+      replaceGuideSteps([
+        "Connect the iPhone and Apple TV or AirPlay TV to the same Wi-Fi network.",
+        "Open this page in Safari, sign in, and start the movie.",
+        "Tap Safari AirPlay above, or tap the AirPlay icon inside the video controls, then choose the TV.",
+        "Keep Safari open on the phone while the TV plays.",
+      ]);
+      if (tvGuideStatus) {
+        tvGuideStatus.textContent = player.webkitShowPlaybackTargetPicker || safariAirPlayAvailable
+          ? "AirPlay is available from this player. Tap Safari AirPlay after the movie starts."
+          : "If the AirPlay icon is missing, use iPhone Control Center Screen Mirroring or confirm the TV supports AirPlay and is on the same Wi-Fi.";
+      }
+      return;
+    }
+
+    if (info.isChromium || info.isAndroid) {
+      replaceGuideSteps([
+        "Connect the Android phone and Chromecast, Google TV, or Cast-capable TV to the same Wi-Fi network.",
+        "Open this page in Chrome, sign in, and start the movie.",
+        "Tap Chrome Cast above if available, or open Chrome's menu and choose Cast.",
+        "Keep Chrome open on the phone while the TV plays.",
+      ]);
+      if (tvGuideStatus) {
+        tvGuideStatus.textContent = player.remote?.prompt
+          ? "Chrome Cast is available from this player. Tap Chrome Cast after the movie starts."
+          : "If Chrome does not show Cast, use Chrome's menu, the Android quick settings Cast tile, or a TV with Chromecast support on the same Wi-Fi.";
+      }
+      return;
+    }
+
+    if (tvGuideStatus) {
+      tvGuideStatus.textContent = browserCastInstructions();
+    }
   }
 
   async function promptRemotePlayback() {
     if (player.webkitShowPlaybackTargetPicker) {
       try {
         player.webkitShowPlaybackTargetPicker();
-        updateStatus("Choose your Apple TV or AirPlay TV in the Safari picker. Keep this browser open as the controller.");
+        updateStatus("Choose your Apple TV or AirPlay TV in the Safari picker. Keep Safari open on the iPhone as the controller.");
         return;
       } catch {
         updateStatus("AirPlay was not started. Open the video controls and use the AirPlay icon if Safari shows it there.");
@@ -305,6 +357,7 @@ function createApp({
     player.setAttribute?.("x-webkit-airplay", "allow");
     player.setAttribute?.("webkit-playsinline", "");
     updateCastButton();
+    updateTvGuide();
   }
 
   async function openFullscreenPlayer() {
@@ -1119,15 +1172,20 @@ function createApp({
       });
       player.remote.addEventListener("connect", () => {
         updateStatus("Playing on the TV. Keep this browser open as the controller.");
+        if (tvGuideStatus) {
+          tvGuideStatus.textContent = "Connected to TV playback. Keep this browser open on the phone.";
+        }
       });
       player.remote.addEventListener("disconnect", () => {
         updateStatus("TV playback disconnected. Playback is still available on this page.");
+        updateTvGuide();
       });
     }
 
     player.addEventListener("webkitplaybacktargetavailabilitychanged", (event) => {
       safariAirPlayAvailable = event.availability === "available";
       updateCastButton();
+      updateTvGuide();
     });
 
     if (documentRef?.addEventListener) {
@@ -1141,6 +1199,7 @@ function createApp({
     allowRemotePlayback();
     updateKeepAwakeButton();
     updateCastButton();
+    updateTvGuide();
     updateBufferStatus();
     showPermissionPanelIfNeeded();
 
@@ -1310,6 +1369,8 @@ if (typeof document !== "undefined") {
     skipPermissionsButton: document.getElementById("skip-permissions"),
     permissionStatus: document.getElementById("permission-status"),
     castButton: document.getElementById("cast-tv"),
+    tvGuideSteps: document.getElementById("tv-guide-steps"),
+    tvGuideStatus: document.getElementById("tv-guide-status"),
     keepAwakeButton: document.getElementById("keep-awake"),
     fullscreenButton: document.getElementById("fullscreen-player"),
     authPanel: document.getElementById("auth-panel"),
