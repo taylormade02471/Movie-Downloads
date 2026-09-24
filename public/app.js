@@ -151,12 +151,20 @@ function createApp({
         setAuthUnavailable(true);
         updateLoginStatus(message);
       }
+      setAuthenticated(false);
       updateStatus(message);
       return false;
     }
 
     const session = await response.json();
     setAuthUnavailable(false);
+    if (session.authConfigured === false) {
+      setAuthenticated(false);
+      updateLoginStatus("Authentication is not configured yet.");
+      updateStatus("Authentication is not configured yet.");
+      setAuthUnavailable(true);
+      return false;
+    }
     setAuthenticated(session.authenticated);
     if (!session.authenticated) {
       updateStatus("Sign in to browse the movie library.");

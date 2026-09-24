@@ -560,7 +560,13 @@ function createRequestHandler(options = {}) {
 
       if (request.method === "GET" && url.pathname === "/api/session") {
         if (!context.sessionManager.isConfigured()) {
-          throw new HttpError(503, "Authentication is not configured.");
+          await sendJson(response, 200, {
+            authenticated: false,
+            expiresAt: null,
+            provider: context.provider.kind,
+            authConfigured: false,
+          }, noStoreHeaders());
+          return;
         }
 
         let session = null;
@@ -583,6 +589,7 @@ function createRequestHandler(options = {}) {
           authenticated: Boolean(session),
           expiresAt: session?.expiresAt ?? null,
           provider: context.provider.kind,
+          authConfigured: true,
         }, noStoreHeaders());
         return;
       }
