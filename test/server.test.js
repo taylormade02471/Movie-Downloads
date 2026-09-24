@@ -105,11 +105,11 @@ test("logs in, lists nested local movies, resolves playback, and logs out", asyn
   });
   assert.equal(playbackResponse.status, 200);
   assert.deepEqual(await playbackResponse.json(), {
-    url: "/api/stream/Collections%2FFamily-Night.mp4",
+    url: "/api/stream/Collections/Family-Night.mp4",
     expiresAt: null,
   });
 
-  const headResponse = await fetch(`http://127.0.0.1:${port}/api/stream/Collections%2FFamily-Night.mp4`, {
+  const headResponse = await fetch(`http://127.0.0.1:${port}/api/stream/Collections/Family-Night.mp4`, {
     method: "HEAD",
     headers: { Cookie: sessionCookie },
   });
