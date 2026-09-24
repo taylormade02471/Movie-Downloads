@@ -74,7 +74,7 @@ The app never exposes the shared password, session secret, or OneDrive credentia
 - Vercel serves the static UI from `public/`
 - The catch-all Node handler lives at `api/[...path].js`
 - Set `APP_ORIGIN` to the exact deployed site origin for CSRF checks
-- Set `TRUST_PROXY=true` on Vercel so auth throttling keys can use the platform-provided forwarded client IP
+- `TRUST_PROXY=true` is an optional override for non-Vercel trusted-proxy deployments; Vercel is auto-detected
 - Protected API responses use `Cache-Control: private, no-store`
 - For production, configure the environment variables in Vercel before testing
 

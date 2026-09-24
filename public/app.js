@@ -156,6 +156,7 @@ function createApp({
 
     passwordInput.value = "";
     updateLoginStatus("");
+    setAuthenticated(false);
     const movies = await loadLibrary();
     setAuthenticated(true);
     if (!movies.length) {
