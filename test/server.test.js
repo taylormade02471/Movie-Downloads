@@ -90,7 +90,9 @@ test("exposes phone and TV playback controls", () => {
   assert.match(html, /id="keep-awake"/);
   assert.match(html, /id="fullscreen-player"/);
   assert.match(html, /x-webkit-airplay="allow"/);
+  assert.match(html, /webkit-playsinline/);
   assert.match(html, /id="buffer-status"/);
+  assert.doesNotMatch(html, /disableremoteplayback/i);
 });
 
 test("configures Vercel media permissions for static pages", () => {
@@ -100,8 +102,13 @@ test("configures Vercel media permissions for static pages", () => {
     .find((header) => header.key.toLowerCase() === "permissions-policy");
 
   assert.match(permissionsHeader.value, /screen-wake-lock=\(self\)/);
+  assert.match(permissionsHeader.value, /bluetooth=\(self\)/);
   assert.match(permissionsHeader.value, /fullscreen=\(self\)/);
+  assert.match(permissionsHeader.value, /local-network=\(self\)/);
+  assert.match(permissionsHeader.value, /local-network-access=\(self\)/);
+  assert.match(permissionsHeader.value, /loopback-network=\(self\)/);
   assert.match(permissionsHeader.value, /picture-in-picture=\(self\)/);
+  assert.match(permissionsHeader.value, /presentation=\(self\)/);
 });
 
 test("logs in, lists nested local movies, resolves playback, and logs out", async (t) => {
@@ -785,6 +792,68 @@ test("selects an uploaded movie and labels unfinished OneDrive entries", async (
   assert.equal(options[0].disabled, true);
   assert.match(options[0].textContent, /still uploading/i);
   assert.equal(options[1].disabled, false);
+});
+
+test("shows Chrome cast guidance when browser cast APIs are unavailable", async () => {
+  const listeners = {};
+  const player = {
+    disableRemotePlayback: true,
+    addEventListener() {},
+    load() {},
+    removeAttribute() {},
+    setAttribute() {},
+  };
+  const status = { textContent: "" };
+  const castButton = {
+    disabled: true,
+    textContent: "",
+    addEventListener(name, listener) {
+      listeners[name] = listener;
+    },
+  };
+
+  const app = createApp({
+    movieSelect: { value: "", addEventListener() {} },
+    reloadButton: { addEventListener() {} },
+    logoutButton: { addEventListener() {} },
+    searchInput: { disabled: false, addEventListener() {} },
+    passwordForm: { addEventListener() {} },
+    passwordInput: { disabled: false, removeAttribute() {}, setAttribute() {} },
+    submitButton: { disabled: false },
+    player,
+    status,
+    bufferStatus: { textContent: "", style: { setProperty() {} } },
+    loginStatus: { textContent: "" },
+    librarySummary: { textContent: "" },
+    folderShelf: { replaceChildren() {}, ownerDocument: { createElement: () => ({ addEventListener() {} }) } },
+    movieGrid: { replaceChildren() {}, ownerDocument: { createElement: () => ({ append() {}, addEventListener() {}, dataset: {} }) } },
+    castButton,
+    keepAwakeButton: { addEventListener() {} },
+    fullscreenButton: { addEventListener() {} },
+    authPanel: { hidden: false },
+    libraryPanel: { hidden: true },
+    fetchImpl: async (url) => {
+      if (url === "/api/session") {
+        return { ok: true, status: 200, json: async () => ({ authenticated: false, authConfigured: true }) };
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    },
+    locationOrigin: "http://127.0.0.1:3000",
+    createOption: () => ({}),
+    documentRef: { addEventListener() {}, visibilityState: "visible" },
+    navigatorRef: {
+      userAgent: "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36",
+      vendor: "Google Inc.",
+    },
+  });
+
+  app.initialize();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(player.disableRemotePlayback, false);
+  assert.equal(castButton.textContent, "Chrome Cast Help");
+  listeners.click();
+  assert.match(status.textContent, /local network or Bluetooth access/i);
 });
 
 test("refreshes and resumes a stream after a sustained stall", async () => {

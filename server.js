@@ -45,7 +45,7 @@ function noStoreHeaders(extraHeaders = {}) {
 
 function mediaFeatureHeaders(extraHeaders = {}) {
   return {
-    "Permissions-Policy": "autoplay=(self), fullscreen=(self), picture-in-picture=(self), screen-wake-lock=(self)",
+    "Permissions-Policy": "autoplay=(self), bluetooth=(self), fullscreen=(self), local-network=(self), local-network-access=(self), loopback-network=(self), picture-in-picture=(self), presentation=(self), screen-wake-lock=(self)",
     ...extraHeaders,
   };
 }

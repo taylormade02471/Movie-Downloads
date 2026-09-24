@@ -43,6 +43,7 @@ function createApp({
   let searchTerm = "";
   let wakeLock = null;
   let keepAwakeWanted = true;
+  let safariAirPlayAvailable = false;
   const expectedLibraryCount = 16;
 
   function updateStatus(message) {
@@ -219,10 +220,64 @@ function createApp({
     }
 
     castButton.disabled = false;
-    castButton.textContent = player.remote?.prompt ? "Cast / AirPlay" : "TV Help";
+    if (safariAirPlayAvailable || player.webkitShowPlaybackTargetPicker) {
+      castButton.textContent = "Safari AirPlay";
+      return;
+    }
+
+    if (player.remote?.prompt) {
+      castButton.textContent = "Chrome Cast";
+      return;
+    }
+
+    castButton.textContent = browserCastLabel();
+  }
+
+  function browserInfo() {
+    const userAgent = navigatorRef?.userAgent || "";
+    const vendor = navigatorRef?.vendor || "";
+    const isChromium = /Chrome|CriOS|Chromium|Edg|OPR/i.test(userAgent);
+    const isSafari = /Safari/i.test(userAgent) && /Apple/i.test(vendor) && !/Chrome|CriOS|Chromium|Edg|OPR/i.test(userAgent);
+    const isIOS = /iPad|iPhone|iPod/i.test(userAgent) || (navigatorRef?.platform === "MacIntel" && navigatorRef?.maxTouchPoints > 1);
+    const isAndroid = /Android/i.test(userAgent);
+
+    return { isAndroid, isChromium, isIOS, isSafari };
+  }
+
+  function browserCastLabel() {
+    const info = browserInfo();
+    if (info.isSafari || info.isIOS) {
+      return "Safari AirPlay Help";
+    }
+    if (info.isChromium || info.isAndroid) {
+      return "Chrome Cast Help";
+    }
+    return "TV Cast Help";
+  }
+
+  function browserCastInstructions() {
+    const info = browserInfo();
+    if (info.isSafari || info.isIOS) {
+      return "Safari controls AirPlay itself: start the movie, tap the video controls, then tap the AirPlay icon and choose your TV. Allow local network or Bluetooth access if iPhone asks. If the icon is missing, open this page in Safari and make sure the Apple TV or AirPlay TV is on the same Wi-Fi.";
+    }
+    if (info.isChromium || info.isAndroid) {
+      return "Chrome controls casting itself: start the movie, then open Chrome's menu and choose Cast, or use the Cast icon if Chrome shows one. Allow local network or Bluetooth access if Chrome asks, pick your TV, and keep this browser open as the controller.";
+    }
+    return "Start the movie, then use your browser's Cast, AirPlay, or screen-mirroring option. Allow local network or Bluetooth access if the browser asks. The page keeps the video loaded here so your browser can hand it to the TV.";
   }
 
   async function promptRemotePlayback() {
+    if (player.webkitShowPlaybackTargetPicker) {
+      try {
+        player.webkitShowPlaybackTargetPicker();
+        updateStatus("Choose your Apple TV or AirPlay TV in the Safari picker. Keep this browser open as the controller.");
+        return;
+      } catch {
+        updateStatus("AirPlay was not started. Open the video controls and use the AirPlay icon if Safari shows it there.");
+        return;
+      }
+    }
+
     if (player.remote?.prompt) {
       try {
         await player.remote.prompt();
@@ -234,7 +289,16 @@ function createApp({
       }
     }
 
-    updateStatus("Use the Cast or AirPlay icon in your phone browser or video controls. This page allows remote playback when the browser supports it.");
+    updateStatus(browserCastInstructions());
+  }
+
+  function allowRemotePlayback() {
+    player.disableRemotePlayback = false;
+    player.removeAttribute?.("disableremoteplayback");
+    player.removeAttribute?.("x-webkit-wirelessvideoplaybackdisabled");
+    player.setAttribute?.("x-webkit-airplay", "allow");
+    player.setAttribute?.("webkit-playsinline", "");
+    updateCastButton();
   }
 
   async function openFullscreenPlayer() {
@@ -947,6 +1011,11 @@ function createApp({
       });
     }
 
+    player.addEventListener("webkitplaybacktargetavailabilitychanged", (event) => {
+      safariAirPlayAvailable = event.availability === "available";
+      updateCastButton();
+    });
+
     if (documentRef?.addEventListener) {
       documentRef.addEventListener("visibilitychange", () => {
         if (documentRef.visibilityState === "visible" && keepAwakeWanted && !wakeLock && !player.paused) {
@@ -955,6 +1024,7 @@ function createApp({
       });
     }
 
+    allowRemotePlayback();
     updateKeepAwakeButton();
     updateCastButton();
     updateBufferStatus();
