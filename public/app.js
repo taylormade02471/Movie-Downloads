@@ -156,10 +156,7 @@ function createApp({
     passwordInput.value = "";
     updateLoginStatus("");
     setAuthenticated(true);
-    const movies = await loadLibrary();
-    if (movies.length) {
-      await playSelectedMovie();
-    }
+    await loadLibrary();
   }
 
   async function handleLogout() {

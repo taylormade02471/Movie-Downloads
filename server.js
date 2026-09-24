@@ -580,7 +580,12 @@ function createRequestHandler(options = {}) {
 
       if (request.method === "GET" && url.pathname.startsWith("/api/playback/")) {
         await context.sessionManager.get(request, true);
-        const movieId = decodeURIComponent(url.pathname.slice("/api/playback/".length));
+        let movieId = "";
+        try {
+          movieId = decodeURIComponent(url.pathname.slice("/api/playback/".length));
+        } catch {
+          throw new HttpError(400, "Invalid movie path.");
+        }
         const playback = await context.provider.resolvePlayback(movieId);
         await sendJson(response, 200, playback, noStoreHeaders());
         return;
