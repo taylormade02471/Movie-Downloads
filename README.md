@@ -73,6 +73,7 @@ The app never exposes the shared password, session secret, or OneDrive credentia
 
 - Vercel serves the static UI from `public/`
 - The catch-all Node handler lives at `api/[...path].js`
+- No custom `vercel.json` routing is required for this layout: static assets stay at the site root and API requests go through `/api/*`
 - Set `APP_ORIGIN` to the exact deployed site origin for CSRF checks
 - `TRUST_PROXY=true` is an optional override for non-Vercel trusted-proxy deployments; Vercel is auto-detected
 - Protected API responses use `Cache-Control: private, no-store`

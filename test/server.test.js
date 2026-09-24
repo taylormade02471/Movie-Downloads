@@ -153,10 +153,13 @@ test("expires and rejects tampered sessions", async (t) => {
   const { port } = server.address();
   const authResponse = await login(port);
   const sessionCookie = authResponse.headers.get("set-cookie");
+  const cookieParts = sessionCookie.split(";");
+  const [cookieName, cookieValue] = cookieParts[0].split("=");
+  const tamperedCookie = `${cookieName}=${cookieValue.slice(0, -1)}x;${cookieParts.slice(1).join(";")}`;
 
   const tamperedResponse = await fetch(`http://127.0.0.1:${port}/api/session`, {
     headers: {
-      Cookie: sessionCookie.replace("a", "b"),
+      Cookie: tamperedCookie,
     },
   });
   assert.equal(tamperedResponse.status, 200);

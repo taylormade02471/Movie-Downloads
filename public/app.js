@@ -202,7 +202,20 @@ function createApp({
       body: "{}",
     });
 
-    if (response.status !== 401) {
+    if (response.status === 401) {
+      const sessionResponse = await fetchImpl("/api/session", {
+        credentials: "same-origin",
+      });
+
+      if (!sessionResponse.ok) {
+        await handleApiResponse(sessionResponse, "Unable to sign out.");
+      }
+
+      const session = await sessionResponse.json();
+      if (session.authenticated) {
+        throw new Error("Unable to sign out.");
+      }
+    } else {
       await handleApiResponse(response, "Unable to sign out.");
     }
 
