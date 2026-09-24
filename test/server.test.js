@@ -115,6 +115,16 @@ test("logs in, lists nested local movies, resolves playback, and logs out", asyn
     expiresAt: null,
   });
 
+  const vercelPlaybackResponse = await fetch(
+    `http://127.0.0.1:${port}/api/playback/placeholder?movieId=${encodeURIComponent(movies[0].id)}`,
+    { headers: { Cookie: sessionCookie } },
+  );
+  assert.equal(vercelPlaybackResponse.status, 200);
+  assert.deepEqual(await vercelPlaybackResponse.json(), {
+    url: "/api/stream/Collections/Family-Night.mp4",
+    expiresAt: null,
+  });
+
   const headResponse = await fetch(`http://127.0.0.1:${port}/api/stream/Collections/Family-Night.mp4`, {
     method: "HEAD",
     headers: { Cookie: sessionCookie },

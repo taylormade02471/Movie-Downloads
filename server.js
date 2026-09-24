@@ -613,11 +613,18 @@ function createRequestHandler(options = {}) {
       if (request.method === "GET" && url.pathname.startsWith("/api/playback/")) {
         await context.sessionManager.get(request, true);
         let movieId = "";
-        try {
-          movieId = decodeURIComponent(url.pathname.slice("/api/playback/".length));
-        } catch {
-          throw new HttpError(400, "Invalid movie path.");
+        const routeMovieId = url.searchParams.get("movieId");
+
+        if (routeMovieId) {
+          movieId = routeMovieId;
+        } else {
+          try {
+            movieId = decodeURIComponent(url.pathname.slice("/api/playback/".length));
+          } catch {
+            throw new HttpError(400, "Invalid movie path.");
+          }
         }
+
         const playback = await context.provider.resolvePlayback(movieId);
         await sendJson(response, 200, playback, noStoreHeaders());
         return;
@@ -630,7 +637,7 @@ function createRequestHandler(options = {}) {
           throw new HttpError(404, "Streaming is not available for this provider.");
         }
 
-        const movieId = url.pathname.slice("/api/stream/".length);
+        const movieId = url.searchParams.get("movieId") || url.pathname.slice("/api/stream/".length);
         const filePath = context.provider.resolveMoviePath(movieId);
 
         if (!filePath) {
