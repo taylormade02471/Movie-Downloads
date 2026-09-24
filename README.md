@@ -62,6 +62,29 @@ Set `ONEDRIVE_PUBLIC_CLIENT=true` only when your Microsoft app registration is c
 The app never exposes the shared password, session secret, or OneDrive credentials to the browser.
 The first-run permissions button does not open a broad Bluetooth chooser. Google Cast and AirPlay discover TVs over the local Wi-Fi network. Cast playback tickets are stored in the configured durable KV store and contain no movie name or login cookie.
 
+## Private Fire TV app
+
+The private Fire TV app lives in `firetv/`. It is for sideloading onto the owner's Fire TV devices and is not an Amazon Appstore submission.
+
+Build a debug APK:
+
+```powershell
+.\gradlew.bat :firetv:assembleDebug
+```
+
+The APK is created under `firetv/build/outputs/apk/debug/`.
+
+Pairing flow:
+
+1. Open the Fire TV app.
+2. Keep the pairing code visible on the TV.
+3. Open Movie Room in the browser and sign in.
+4. Choose Pair Fire TV.
+5. Enter the code shown on the TV.
+6. Return to the Fire TV app and choose a movie.
+
+Private install requires Fire TV developer options and ADB approval on the TV. Do not put Movie Room passwords, OneDrive secrets, or Vercel secrets into the APK.
+
 ## Getting started
 
 Use Node.js 22.9 or newer. `npm start` loads a local `.env` file when one exists and otherwise uses the current process environment.

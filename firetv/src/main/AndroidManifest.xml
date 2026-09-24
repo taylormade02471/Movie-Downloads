@@ -9,8 +9,8 @@
 
     <application
         android:allowBackup="false"
-        android:banner="@mipmap/ic_launcher"
-        android:icon="@mipmap/ic_launcher"
+        android:banner="@drawable/banner"
+        android:icon="@drawable/ic_launcher"
         android:label="Movie Room"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
