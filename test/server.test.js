@@ -93,6 +93,17 @@ test("exposes phone and TV playback controls", () => {
   assert.match(html, /id="buffer-status"/);
 });
 
+test("configures Vercel media permissions for static pages", () => {
+  const vercelConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "vercel.json"), "utf8"));
+  const permissionsHeader = vercelConfig.headers
+    .flatMap((entry) => entry.headers)
+    .find((header) => header.key.toLowerCase() === "permissions-policy");
+
+  assert.match(permissionsHeader.value, /screen-wake-lock=\(self\)/);
+  assert.match(permissionsHeader.value, /fullscreen=\(self\)/);
+  assert.match(permissionsHeader.value, /picture-in-picture=\(self\)/);
+});
+
 test("logs in, lists nested local movies, resolves playback, and logs out", async (t) => {
   const { root, moviesDir, publicDir } = createTempLibrary();
   fs.writeFileSync(path.join(moviesDir, "Collections", "Family-Night.mp4"), "abcdef");
