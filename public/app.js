@@ -221,13 +221,9 @@ function createApp({
     reloadButton.addEventListener("click", async () => {
       try {
         const previousSelection = movieSelect.value;
-        const previousSource = player.currentSrc;
         const movies = await loadLibrary(previousSelection);
 
-        if (
-          movies.length
-          && (!previousSource || previousSelection !== movieSelect.value)
-        ) {
+        if (movies.length && movieSelect.value) {
           await playSelectedMovie();
         }
       } catch (error) {

@@ -218,6 +218,13 @@ function buildClearedSessionCookie(secure) {
   });
 }
 
+function buildClearedSessionCookies() {
+  return [
+    buildClearedSessionCookie(false),
+    buildClearedSessionCookie(true),
+  ];
+}
+
 async function ensureReadableFile(filePath) {
   await fsp.access(filePath, R_OK);
 }
@@ -371,21 +378,21 @@ function createSessionManager(store, authConfig, now = Date.now, trustProxy = fa
         }
 
         throw new HttpError(401, "Sign in is required.", {
-          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request, trustProxy)) },
+          headers: { "Set-Cookie": buildClearedSessionCookies() },
         });
       }
 
       const sessionId = decodeSignedValue(rawCookie, authConfig.sessionSecret);
       if (!sessionId) {
         throw new HttpError(401, "Session is invalid.", {
-          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request, trustProxy)) },
+          headers: { "Set-Cookie": buildClearedSessionCookies() },
         });
       }
 
       const sessionJson = await store.get(`${prefix}${sessionId}`);
       if (!sessionJson) {
         throw new HttpError(401, "Session expired.", {
-          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request, trustProxy)) },
+          headers: { "Set-Cookie": buildClearedSessionCookies() },
         });
       }
 
@@ -395,14 +402,14 @@ function createSessionManager(store, authConfig, now = Date.now, trustProxy = fa
       } catch {
         await store.delete(`${prefix}${sessionId}`);
         throw new HttpError(401, "Session expired.", {
-          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request, trustProxy)) },
+          headers: { "Set-Cookie": buildClearedSessionCookies() },
         });
       }
 
       if (!session.expiresAt || session.expiresAt <= now()) {
         await store.delete(`${prefix}${sessionId}`);
         throw new HttpError(401, "Session expired.", {
-          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request, trustProxy)) },
+          headers: { "Set-Cookie": buildClearedSessionCookies() },
         });
       }
 
@@ -411,14 +418,14 @@ function createSessionManager(store, authConfig, now = Date.now, trustProxy = fa
     async destroy(request) {
       const secure = isSecureRequest(request, trustProxy);
       if (!this.isConfigured()) {
-        return buildClearedSessionCookie(secure);
+        return buildClearedSessionCookies();
       }
 
       const cookies = parseCookies(request.headers.cookie);
       const rawCookie = cookies[SESSION_COOKIE_NAME];
 
       if (!rawCookie) {
-        return buildClearedSessionCookie(secure);
+        return buildClearedSessionCookies();
       }
 
       const sessionId = decodeSignedValue(rawCookie, authConfig.sessionSecret);
@@ -426,7 +433,7 @@ function createSessionManager(store, authConfig, now = Date.now, trustProxy = fa
         await store.delete(`${prefix}${sessionId}`);
       }
 
-      return buildClearedSessionCookie(secure);
+      return buildClearedSessionCookies();
     },
   };
 }
