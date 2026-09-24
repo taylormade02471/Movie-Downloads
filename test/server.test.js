@@ -123,4 +123,10 @@ test("clamps oversized ranges and rejects traversal attempts", async (t) => {
 
   const traversalResponse = await fetch(`http://127.0.0.1:${port}/api/stream/..%2Fclip.mp4`);
   assert.equal(traversalResponse.status, 400);
+
+  const invalidRangeResponse = await fetch(`http://127.0.0.1:${port}/api/stream/clip.mp4`, {
+    headers: { Range: "bytes=100-200" },
+  });
+  assert.equal(invalidRangeResponse.status, 416);
+  assert.equal(invalidRangeResponse.headers.get("content-range"), "bytes */10");
 });

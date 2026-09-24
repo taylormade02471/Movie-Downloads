@@ -220,6 +220,11 @@ function createServer(options = {}) {
           return;
         }
 
+        if (!STREAMABLE_EXTENSIONS.has(path.extname(filePath).toLowerCase())) {
+          await sendJson(response, 415, { error: "Unsupported movie format." });
+          return;
+        }
+
         let stats;
         try {
           stats = await fsp.stat(filePath);

@@ -12,7 +12,7 @@ function movieLabel(movie) {
   return `${movie.title} (${sizeInGb} GB)`;
 }
 
-async function loadLibrary() {
+async function loadLibrary(selectedStreamPath = movieSelect.value) {
   updateStatus("Loading library…");
 
   const response = await fetch("/api/movies");
@@ -37,6 +37,11 @@ async function loadLibrary() {
     movieSelect.appendChild(option);
   }
 
+  const availablePaths = new Set(movies.map((movie) => movie.streamPath));
+  if (selectedStreamPath && availablePaths.has(selectedStreamPath)) {
+    movieSelect.value = selectedStreamPath;
+  }
+
   updateStatus("Library ready. Select a movie to start streaming.");
   return movies;
 }
@@ -56,8 +61,9 @@ function playSelectedMovie() {
 movieSelect.addEventListener("change", playSelectedMovie);
 reloadButton.addEventListener("click", async () => {
   try {
-    const movies = await loadLibrary();
-    if (movies.length) {
+    const previousSelection = movieSelect.value;
+    const movies = await loadLibrary(previousSelection);
+    if (movies.length && (!previousSelection || movieSelect.value !== previousSelection || !player.currentSrc)) {
       playSelectedMovie();
     }
   } catch (error) {
