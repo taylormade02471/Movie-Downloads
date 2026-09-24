@@ -559,6 +559,7 @@
             <h1>Now Playing</h1>
             <div class="player-actions" aria-label="TV and phone playback controls">
               <button id="cast-tv" type="button">Cast / AirPlay</button>
+              <button id="pair-fire-tv" class="secondary" type="button">Pair Fire TV</button>
               <button id="keep-awake" class="secondary" type="button">Keep Awake</button>
               <button id="fullscreen-player" class="secondary" type="button">Fullscreen</button>
             </div>
@@ -576,6 +577,22 @@
                 iPhone works best through Safari AirPlay. Android works best through Chrome Cast when Chrome shows it.
               </p>
             </section>
+            <form id="fire-tv-pairing-form" class="tv-guide" hidden>
+              <h2>Pair Fire TV</h2>
+              <p class="detail">Enter the code shown on your Fire TV. The TV gets its own device access, not your password or OneDrive secrets.</p>
+              <label for="fire-tv-code">Fire TV code</label>
+              <input
+                id="fire-tv-code"
+                type="text"
+                inputmode="text"
+                autocomplete="one-time-code"
+                autocapitalize="characters"
+                maxlength="8"
+                aria-describedby="fire-tv-pairing-status"
+              />
+              <button type="submit">Approve Fire TV</button>
+              <p id="fire-tv-pairing-status" class="status" role="status" aria-live="polite"></p>
+            </form>
             <p id="status" class="status" role="status" aria-live="polite">Checking session...</p>
           </div>
 

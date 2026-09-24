@@ -25,6 +25,10 @@ function createApp({
   fullscreenButton,
   authPanel,
   libraryPanel,
+  pairFireTvButton,
+  fireTvPairingForm,
+  fireTvCodeInput,
+  fireTvPairingStatus,
   fetchImpl,
   locationOrigin,
   createOption,
@@ -688,6 +692,9 @@ function createApp({
     if (fullscreenButton) {
       fullscreenButton.disabled = !authenticated;
     }
+    if (pairFireTvButton) {
+      pairFireTvButton.disabled = !authenticated;
+    }
   }
 
   function setAuthUnavailable(unavailable) {
@@ -1266,6 +1273,45 @@ function createApp({
     updateStatus("Signed out.");
   }
 
+  function updateFireTvPairingStatus(message) {
+    if (fireTvPairingStatus) {
+      fireTvPairingStatus.textContent = message;
+    }
+  }
+
+  function normalizeFireTvCode(value) {
+    return String(value || "").replace(/[^a-z0-9]/gi, "").toUpperCase();
+  }
+
+  async function approveFireTvPairing(event) {
+    event.preventDefault();
+    const code = normalizeFireTvCode(fireTvCodeInput ? fireTvCodeInput.value : "");
+    if (!code) {
+      updateFireTvPairingStatus("Enter the code shown on your Fire TV.");
+      return false;
+    }
+
+    updateFireTvPairingStatus("Approving Fire TV...");
+    const response = await handleApiResponse(
+      await fetchImpl("/api/tv/pairings/approve", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ code }),
+      }),
+      "Unable to approve this Fire TV.",
+    );
+    const approved = await response.json();
+    const label = approved.deviceLabel || "Fire TV";
+    updateFireTvPairingStatus(`${label} is approved. Open the Fire TV app to continue.`);
+    if (fireTvCodeInput) {
+      fireTvCodeInput.value = "";
+    }
+    return true;
+  }
+
   function initialize() {
     movieSelect.addEventListener("change", () => {
       playSelectedMovie().catch((error) => {
@@ -1324,6 +1370,24 @@ function createApp({
       castButton.addEventListener("click", () => {
         promptRemotePlayback().catch((error) => {
           updateStatus(error.message);
+        });
+      });
+    }
+
+    if (pairFireTvButton && fireTvPairingForm) {
+      pairFireTvButton.addEventListener("click", () => {
+        fireTvPairingForm.hidden = !fireTvPairingForm.hidden;
+        if (!fireTvPairingForm.hidden) {
+          updateFireTvPairingStatus("Enter the code shown on your Fire TV.");
+        }
+      });
+    }
+
+    if (fireTvPairingForm) {
+      fireTvPairingForm.addEventListener("submit", (event) => {
+        return approveFireTvPairing(event).catch((error) => {
+          updateFireTvPairingStatus(error.message);
+          return false;
         });
       });
     }
@@ -1548,6 +1612,10 @@ if (typeof document !== "undefined") {
     fullscreenButton: document.getElementById("fullscreen-player"),
     authPanel: document.getElementById("auth-panel"),
     libraryPanel: document.getElementById("library-panel"),
+    pairFireTvButton: document.getElementById("pair-fire-tv"),
+    fireTvPairingForm: document.getElementById("fire-tv-pairing-form"),
+    fireTvCodeInput: document.getElementById("fire-tv-code"),
+    fireTvPairingStatus: document.getElementById("fire-tv-pairing-status"),
     fetchImpl: fetch,
     locationOrigin: window.location.origin,
     createOption: () => document.createElement("option"),

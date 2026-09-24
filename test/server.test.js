@@ -119,6 +119,11 @@ test("preloads the selected movie for smoother in-page playback", () => {
 test("exposes phone and TV playback controls", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
   assert.match(html, /id="cast-tv"/);
+  assert.match(html, /id="pair-fire-tv"/);
+  assert.match(html, /id="fire-tv-pairing-form"/);
+  assert.match(html, /id="fire-tv-code"/);
+  assert.match(html, /id="fire-tv-pairing-status"/);
+  assert.match(html, /Pair Fire TV/);
   assert.match(html, /id="keep-awake"/);
   assert.match(html, /id="fullscreen-player"/);
   assert.match(html, /x-webkit-airplay="allow"/);
@@ -1310,6 +1315,88 @@ test("shows Chrome cast guidance when browser cast APIs are unavailable", async 
   listeners.click();
   assert.match(status.textContent, /same Wi-Fi/i);
   assert.doesNotMatch(status.textContent, /Bluetooth/i);
+});
+
+test("approves a Fire TV pairing code from the signed-in web UI", async () => {
+  const listeners = {};
+  const fireTvStatus = { textContent: "" };
+  const fireTvCode = { value: "AB12CD" };
+  const fireTvForm = {
+    hidden: true,
+    addEventListener(name, listener) {
+      listeners[`form:${name}`] = listener;
+    },
+  };
+  const pairFireTvButton = {
+    disabled: true,
+    addEventListener(name, listener) {
+      listeners[`button:${name}`] = listener;
+    },
+  };
+  const requests = [];
+  const app = createApp({
+    movieSelect: { value: "", disabled: false, addEventListener() {}, appendChild() {}, innerHTML: "" },
+    reloadButton: { disabled: false, addEventListener() {} },
+    logoutButton: { disabled: false, addEventListener() {} },
+    searchInput: { disabled: false, addEventListener() {}, value: "" },
+    passwordForm: { addEventListener() {} },
+    passwordInput: { disabled: false, value: "", setAttribute() {}, removeAttribute() {}, select() {} },
+    submitButton: { disabled: false },
+    player: { removeAttribute() {}, load() {}, addEventListener() {}, setAttribute() {}, buffered: { length: 0 } },
+    status: { textContent: "" },
+    bufferStatus: { textContent: "", style: { setProperty() {} } },
+    loginStatus: { textContent: "", focus() {} },
+    librarySummary: { textContent: "" },
+    folderShelf: { replaceChildren() {}, ownerDocument: { createElement: () => ({ addEventListener() {}, dataset: {} }) } },
+    movieGrid: { replaceChildren() {}, ownerDocument: { createElement: () => ({ append() {}, addEventListener() {}, dataset: {} }) } },
+    permissionPanel: { hidden: true },
+    enablePermissionsButton: { addEventListener() {}, disabled: false },
+    skipPermissionsButton: { addEventListener() {} },
+    permissionStatus: { textContent: "" },
+    castButton: { disabled: false, addEventListener() {} },
+    tvGuideTitle: { textContent: "" },
+    tvGuideSteps: { ownerDocument: { createElement: () => ({ textContent: "" }) }, replaceChildren() {}, append() {} },
+    tvGuideStatus: { textContent: "" },
+    keepAwakeButton: { disabled: false, textContent: "", addEventListener() {} },
+    fullscreenButton: { disabled: false, addEventListener() {} },
+    authPanel: { hidden: false },
+    libraryPanel: { hidden: true },
+    pairFireTvButton,
+    fireTvPairingForm: fireTvForm,
+    fireTvCodeInput: fireTvCode,
+    fireTvPairingStatus: fireTvStatus,
+    fetchImpl: async (url, options = {}) => {
+      requests.push({ url, options });
+      if (url === "/api/session") {
+        return { ok: true, status: 200, json: async () => ({ authenticated: true, authConfigured: true }) };
+      }
+      if (url === "/api/library") {
+        return { ok: true, status: 200, json: async () => ({ movies: [], folders: [] }) };
+      }
+      if (url === "/api/tv/pairings/approve") {
+        return { ok: true, status: 200, json: async () => ({ status: "approved", deviceLabel: "Living Room Fire TV" }) };
+      }
+      throw new Error(url);
+    },
+    locationOrigin: "https://movie-downloads.example",
+    createOption: () => ({}),
+    navigatorRef: { userAgent: "Mozilla/5.0 Safari/605.1.15", vendor: "Apple Computer, Inc." },
+    localStorageRef: { getItem: () => "done", setItem() {} },
+    windowRef: {},
+  });
+
+  app.initialize();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(pairFireTvButton.disabled, false);
+
+  listeners["button:click"]();
+  assert.equal(fireTvForm.hidden, false);
+
+  await listeners["form:submit"]({ preventDefault() {} });
+  assert.equal(fireTvStatus.textContent, "Living Room Fire TV is approved. Open the Fire TV app to continue.");
+  const approval = requests.find((request) => request.url === "/api/tv/pairings/approve");
+  assert.equal(approval.options.method, "POST");
+  assert.deepEqual(JSON.parse(approval.options.body), { code: "AB12CD" });
 });
 
 test("opens the Google Cast picker and loads a ticketed movie on the named TV", async () => {
