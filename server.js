@@ -610,6 +610,21 @@ function createRequestHandler(options = {}) {
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/playback") {
+        ensureSameOrigin(request, context.appOrigin, context.trustProxy);
+        await context.sessionManager.get(request, true);
+        const body = await readJsonBody(request, context.authConfig.bodyLimit);
+        const movieId = typeof body.movieId === "string" ? body.movieId : "";
+
+        if (!movieId) {
+          throw new HttpError(400, "A movie id is required.");
+        }
+
+        const playback = await context.provider.resolvePlayback(movieId);
+        await sendJson(response, 200, playback, noStoreHeaders());
+        return;
+      }
+
       if (request.method === "GET" && url.pathname.startsWith("/api/playback/")) {
         await context.sessionManager.get(request, true);
         let movieId = "";

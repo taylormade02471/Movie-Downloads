@@ -138,8 +138,13 @@ function createApp({
 
     updateStatus("Requesting a secure playback link…");
     const response = await handleApiResponse(
-      await fetchImpl(`/api/playback/${encodeURIComponent(movieId)}`, {
+      await fetchImpl("/api/playback", {
+        method: "POST",
         credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ movieId }),
       }),
       "Unable to start playback.",
     );

@@ -115,10 +115,15 @@ test("logs in, lists nested local movies, resolves playback, and logs out", asyn
     expiresAt: null,
   });
 
-  const vercelPlaybackResponse = await fetch(
-    `http://127.0.0.1:${port}/api/playback/placeholder?movieId=${encodeURIComponent(movies[0].id)}`,
-    { headers: { Cookie: sessionCookie } },
-  );
+  const vercelPlaybackResponse = await fetch(`http://127.0.0.1:${port}/api/playback`, {
+    method: "POST",
+    headers: {
+      Cookie: sessionCookie,
+      "Content-Type": "application/json",
+      Origin: `http://127.0.0.1:${port}`,
+    },
+    body: JSON.stringify({ movieId: movies[0].id }),
+  });
   assert.equal(vercelPlaybackResponse.status, 200);
   assert.deepEqual(await vercelPlaybackResponse.json(), {
     url: "/api/stream/Collections/Family-Night.mp4",
@@ -520,7 +525,7 @@ test("starts the selected movie after a successful login", async () => {
           ]),
         };
       }
-      if (url === "/api/playback/movie-1") {
+      if (url === "/api/playback") {
         return {
           ok: true,
           status: 200,
@@ -539,8 +544,10 @@ test("starts the selected movie after a successful login", async () => {
   assert.equal(status.textContent, "Connecting to stream and buffering playback…");
   assert.deepEqual(
     requests.map((request) => request.url),
-    ["/api/login", "/api/movies", "/api/playback/movie-1"],
+    ["/api/login", "/api/movies", "/api/playback"],
   );
+  assert.equal(requests[2].options.method, "POST");
+  assert.equal(requests[2].options.body, JSON.stringify({ movieId: "movie-1" }));
 });
 
 test("refreshes a temporary playback link once after a player error", async () => {
@@ -603,7 +610,7 @@ test("refreshes a temporary playback link once after a player error", async () =
     loginStatus,
     authPanel,
     libraryPanel,
-    fetchImpl: async (url) => {
+    fetchImpl: async (url, options = {}) => {
       if (url === "/api/session") {
         return {
           ok: true,
@@ -620,7 +627,9 @@ test("refreshes a temporary playback link once after a player error", async () =
           ]),
         };
       }
-      if (url === "/api/playback/movie-1") {
+      if (url === "/api/playback") {
+        assert.equal(options.method, "POST");
+        assert.equal(options.body, JSON.stringify({ movieId: "movie-1" }));
         playbackRequests += 1;
         return {
           ok: true,
