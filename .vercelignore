@@ -1,0 +1,3 @@
+# Integration-generated agent guidance is local tooling, not application code.
+.agents/
+skills-lock.json
