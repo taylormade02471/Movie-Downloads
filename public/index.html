@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Movie Room</title>
+    <title>TaylorMade Movies | Movie Room</title>
     <style>
       :root {
         color-scheme: dark;
@@ -54,8 +54,26 @@
         align-items: center;
         gap: 10px;
         min-width: max-content;
-        font-size: 20px;
+        font-size: 18px;
         font-weight: 700;
+      }
+
+      .brand-copy {
+        display: grid;
+        gap: 1px;
+      }
+
+      .brand-primary {
+        color: #f0c45b;
+        letter-spacing: -0.02em;
+      }
+
+      .brand-secondary {
+        color: #a9a9a9;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
       }
 
       .brand-mark {
@@ -213,13 +231,55 @@
 
       .library-shell {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 330px;
-        gap: 24px;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 30px;
         align-items: start;
       }
 
       .watch-stage {
         min-width: 0;
+      }
+
+      .watch-placeholder {
+        position: relative;
+        display: grid;
+        min-height: clamp(240px, 42vw, 560px);
+        overflow: hidden;
+        border: 1px solid #322a1b;
+        border-radius: 16px;
+        background: #050505;
+      }
+
+      .watch-placeholder img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        min-height: inherit;
+        object-fit: cover;
+        opacity: 0.68;
+      }
+
+      .watch-placeholder-copy {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        align-content: center;
+        gap: 9px;
+        padding: 24px;
+        background: linear-gradient(90deg, rgba(0, 0, 0, 0.56), rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.52));
+        text-align: center;
+      }
+
+      .watch-placeholder-copy strong {
+        color: #f0c45b;
+        font-size: clamp(22px, 4vw, 42px);
+        letter-spacing: -0.03em;
+      }
+
+      .watch-placeholder-copy span {
+        color: #e0e0e0;
+        font-size: 14px;
       }
 
       .player-frame {
@@ -369,10 +429,10 @@
       }
 
       .folder-panel {
-        position: sticky;
-        top: 74px;
         display: grid;
-        gap: 12px;
+        gap: 10px;
+        border-top: 1px solid #2c2c2c;
+        padding-top: 18px;
       }
 
       .folder-panel h2,
@@ -384,15 +444,17 @@
       .folder-shelf {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: 6px;
       }
 
       .folder-chip {
         max-width: 100%;
         border: 1px solid #333;
-        background: #1d1d1d;
+        border-radius: 7px;
+        padding: 8px 10px;
+        background: #181818;
         color: #f1f1f1;
-        font-size: 13px;
+        font-size: 12px;
         white-space: normal;
         text-align: left;
       }
@@ -405,7 +467,36 @@
       .browse-section {
         display: grid;
         gap: 14px;
-        margin-top: 10px;
+        margin-top: 22px;
+      }
+
+      .browse-header {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+
+      .category-shelf {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .category-chip {
+        border: 1px solid #3b3b3b;
+        border-radius: 999px;
+        padding: 8px 13px;
+        background: #1a1a1a;
+        color: #d5d5d5;
+        font-size: 12px;
+      }
+
+      .category-chip.active {
+        border-color: #f0c45b;
+        background: #f0c45b;
+        color: #17120a;
       }
 
       .library-summary {
@@ -543,6 +634,12 @@
         color: #b8b8b8;
       }
 
+      .guidance-area {
+        display: grid;
+        gap: 12px;
+        margin-top: 2px;
+      }
+
       .permission-panel {
         position: fixed;
         inset: 0;
@@ -587,10 +684,6 @@
         .library-shell {
           grid-template-columns: 1fr;
         }
-
-        .folder-panel {
-          position: static;
-        }
       }
 
       @media (max-width: 720px) {
@@ -612,6 +705,10 @@
 
         .topbar-actions > button {
           flex: 1;
+        }
+
+        .brand {
+          align-self: flex-start;
         }
 
         .profile-switcher {
@@ -677,9 +774,12 @@
     </section>
 
     <header class="topbar">
-      <div class="brand" aria-label="Movie Room">
+      <div class="brand" aria-label="TaylorMade Movies Movie Room">
         <span class="brand-mark">Play</span>
-        <span>Movie Room</span>
+        <span class="brand-copy">
+          <span class="brand-primary">TaylorMade Movies</span>
+          <span class="brand-secondary">Movie Room</span>
+        </span>
       </div>
       <div class="search-wrap">
         <input
@@ -738,7 +838,14 @@
     <main id="library-panel" class="page" hidden>
       <div class="library-shell">
         <section class="watch-stage" aria-label="Now playing">
-          <div class="player-frame">
+          <div id="watch-placeholder" class="watch-placeholder">
+            <img src="/taylormade-movies-cover.png" alt="TaylorMade Movies" />
+            <div class="watch-placeholder-copy">
+              <strong>Choose a movie to start</strong>
+              <span>Your player will open here when you select a title.</span>
+            </div>
+          </div>
+          <div class="player-frame" hidden>
             <video
               id="player"
               controls
@@ -753,7 +860,7 @@
               Full screen
             </button>
           </div>
-          <div class="watch-meta">
+          <div class="watch-meta" hidden>
             <h1 id="now-playing-title">Choose a movie</h1>
             <p id="now-playing-detail" class="now-playing-detail">Select a thumbnail below to start streaming.</p>
             <div class="player-actions" aria-label="TV and phone playback controls">
@@ -763,40 +870,17 @@
             </div>
             <p id="buffer-status" class="buffer-status">Buffer target: 0 seconds ready of 5 minutes.</p>
             <p class="detail">Smooth playback loads the selected movie ahead inside this page and may use more data.</p>
-            <section class="tv-guide" aria-labelledby="tv-guide-title">
-              <h2 id="tv-guide-title">iPhone to TV</h2>
-              <ol id="tv-guide-steps">
-                <li>Connect the iPhone and Apple TV or AirPlay TV to the same Wi-Fi network.</li>
-                <li>Open this page in Safari, sign in, and start the movie.</li>
-                <li>Tap Safari AirPlay above, or tap the AirPlay icon inside the video controls, then choose the TV.</li>
-                <li>Keep Safari open on the phone while the TV plays.</li>
-              </ol>
-              <p id="tv-guide-status" class="status" role="status" aria-live="polite">
-                iPhone works best through Safari AirPlay. Android works best through Chrome Cast when Chrome shows it.
-              </p>
-            </section>
-            <form id="fire-tv-pairing-form" class="tv-guide" hidden>
-              <h2>Pair Fire TV</h2>
-              <p class="detail">Enter the code shown on your Fire TV. The TV gets its own device access, not your password or OneDrive secrets.</p>
-              <label for="fire-tv-code">Fire TV code</label>
-              <input
-                id="fire-tv-code"
-                type="text"
-                inputmode="text"
-                autocomplete="one-time-code"
-                autocapitalize="characters"
-                maxlength="8"
-                aria-describedby="fire-tv-pairing-status"
-              />
-              <button type="submit">Approve Fire TV</button>
-              <p id="fire-tv-pairing-status" class="status" role="status" aria-live="polite"></p>
-            </form>
             <p id="status" class="status" role="status" aria-live="polite">Checking session...</p>
           </div>
 
           <section class="browse-section" aria-labelledby="browse-title">
-            <h2 id="browse-title">Recommended from your library</h2>
-            <p id="library-summary" class="library-summary"></p>
+            <div class="browse-header">
+              <div>
+                <h2 id="browse-title">Recently Downloaded</h2>
+                <p id="library-summary" class="library-summary"></p>
+              </div>
+              <div id="category-shelf" class="category-shelf" aria-label="Movie categories"></div>
+            </div>
             <div id="movie-grid" class="movie-grid" aria-live="polite"></div>
           </section>
         </section>
@@ -808,9 +892,40 @@
               <select id="movie-select" disabled></select>
             </div>
           </div>
-          <h2>Folders</h2>
+          <h2>Movie folders</h2>
           <div id="folder-shelf" class="folder-shelf" aria-label="Folders"></div>
         </aside>
+
+        <section class="guidance-area" aria-label="TV playback help">
+          <section class="tv-guide" aria-labelledby="tv-guide-title">
+            <h2 id="tv-guide-title">iPhone to TV</h2>
+            <ol id="tv-guide-steps">
+              <li>Connect the iPhone and Apple TV or AirPlay TV to the same Wi-Fi network.</li>
+              <li>Open this page in Safari, sign in, and start the movie.</li>
+              <li>Tap Safari AirPlay above, or tap the AirPlay icon inside the video controls, then choose the TV.</li>
+              <li>Keep Safari open on the phone while the TV plays.</li>
+            </ol>
+            <p id="tv-guide-status" class="status" role="status" aria-live="polite">
+              iPhone works best through Safari AirPlay. Android works best through Chrome Cast when Chrome shows it.
+            </p>
+          </section>
+          <form id="fire-tv-pairing-form" class="tv-guide" hidden>
+            <h2>Pair Fire TV</h2>
+            <p class="detail">Enter the code shown on your Fire TV. The TV gets its own device access, not your password or OneDrive secrets.</p>
+            <label for="fire-tv-code">Fire TV code</label>
+            <input
+              id="fire-tv-code"
+              type="text"
+              inputmode="text"
+              autocomplete="one-time-code"
+              autocapitalize="characters"
+              maxlength="8"
+              aria-describedby="fire-tv-pairing-status"
+            />
+            <button type="submit">Approve Fire TV</button>
+            <p id="fire-tv-pairing-status" class="status" role="status" aria-live="polite"></p>
+          </form>
+        </section>
       </div>
     </main>
 

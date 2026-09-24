@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { createServer } = require("../server");
-const { createApp } = require("../public/app");
+const { createApp, classifyMovie, filterMovieFolders } = require("../public/app");
 const { MemoryStore } = require("../lib/store");
 const { createOneDriveProvider } = require("../lib/providers/onedrive");
 const { movieTitleFromName, posterUrlFromTitle } = require("../lib/media");
@@ -99,6 +99,20 @@ test("cleans movie file names and derives poster URLs", () => {
     "Coyote vs Acme",
   );
   assert.equal(posterUrlFromTitle("ACME Night"), "/posters/acme-night.jpg");
+});
+
+test("organizes the library into family categories and hides technical folders", () => {
+  assert.equal(classifyMovie({ title: "Toy Story 5" }), "kids");
+  assert.equal(classifyMovie({ title: "In The Grey" }), "adults");
+  assert.deepEqual(
+    filterMovieFolders([
+      { path: "Home Alone Collection", name: "Home Alone Collection", movieCount: 5 },
+      { path: "Home Alone Collection/Home Alone Complete Collection", name: "Home Alone Complete Collection", movieCount: 5 },
+      { path: "Home Alone Collection/Home Alone Complete Collection/Subs", name: "Subs", movieCount: 0 },
+      { path: "Movie Room Application Mac Copy/firetv/src", name: "src", movieCount: 0 },
+    ]).map((folder) => folder.name),
+    ["Home Alone Complete Collection"],
+  );
 });
 
 test("serves the watch page and protects the movie catalog", async (t) => {
@@ -1059,7 +1073,7 @@ test("surfaces movie library load failures in the status message", async () => {
   assert.equal(status.textContent, "Unable to load movie library.");
 });
 
-test("starts the selected movie after a successful login", async () => {
+test("waits for an explicit movie selection after a successful login", async () => {
   const movieSelect = {
     value: "",
     innerHTML: "",
@@ -1135,14 +1149,12 @@ test("starts the selected movie after a successful login", async () => {
 
   await app.handleLogin({ preventDefault() {} });
 
-  assert.equal(player.src, "https://download.example/movie-1");
-  assert.equal(status.textContent, "Loading video ahead for smooth playback…");
+  assert.equal(player.src, "");
+  assert.equal(status.textContent, "Library ready. Choose a movie to start streaming.");
   assert.deepEqual(
     requests.map((request) => request.url),
-    ["/api/login", "/api/library", "/api/playback"],
+    ["/api/login", "/api/library"],
   );
-  assert.equal(requests[2].options.method, "POST");
-  assert.equal(requests[2].options.body, JSON.stringify({ movieId: "movie-1" }));
 });
 
 test("refreshes a temporary playback link once after a player error", async () => {
@@ -1242,6 +1254,8 @@ test("refreshes a temporary playback link once after a player error", async () =
 
   app.initialize();
   await new Promise((resolve) => setTimeout(resolve, 0));
+  movieSelect.value = "movie-1";
+  await app.playSelectedMovie();
   assert.equal(player.src, "https://download.example/movie-1-1");
 
   listeners["player:error"]();
@@ -1959,6 +1973,9 @@ test("refreshes and resumes a stream after a sustained stall", async () => {
 
   app.initialize();
   await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(playbackRequests, 0);
+  movieSelect.value = "movie-1";
+  await app.playSelectedMovie();
   assert.equal(playbackRequests, 1);
 
   listeners["player:waiting"]();

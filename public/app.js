@@ -1,3 +1,27 @@
+const KIDS_MOVIE_PATTERN = /\b(?:home\s+alone|toy\s+story|paw\s+patrol|spider\s*man|superman|jurassic\s+world|magic\s+faraway\s+tree)\b/i;
+const TECHNICAL_FOLDER_PATTERN = /^(?:subs?|images?|drawable(?:[-_ ]?nodpi)?|res|src|main|java|providers?|firetv|api|cast|playback|stream|tv|pairings?|docs?|test|gradle|node_modules?|skills?|agents?|patterns?|search|commands|migrations|performance|advanced features)$/i;
+
+function classifyMovie(movie) {
+  const source = movie || {};
+  const searchable = `${source.title || ""} ${source.fileName || ""} ${source.folder || ""}`;
+  return KIDS_MOVIE_PATTERN.test(searchable) ? "kids" : "adults";
+}
+
+function filterMovieFolders(folders) {
+  const candidates = (Array.isArray(folders) ? folders : [])
+    .filter((folder) => folder && folder.path && !folder.hidden && Number(folder.movieCount) > 0)
+    .filter((folder) => {
+      const parts = String(folder.path).split(/[\\/]/).filter(Boolean);
+      return !parts.some((part) => TECHNICAL_FOLDER_PATTERN.test(part.trim()));
+    });
+
+  return candidates
+    .filter((folder) => !candidates.some((other) => (
+      other.path !== folder.path && other.path.startsWith(`${folder.path}/`)
+    )))
+    .sort((left, right) => left.path.localeCompare(right.path));
+}
+
 function createApp({
   movieSelect,
   reloadButton,
@@ -15,7 +39,10 @@ function createApp({
   loginStatus,
   librarySummary,
   folderShelf,
+  categoryShelf,
   movieGrid,
+  watchPlaceholder,
+  watchStage,
   permissionPanel,
   enablePermissionsButton,
   skipPermissionsButton,
@@ -61,7 +88,9 @@ function createApp({
   let allMovies = [];
   let allFolders = [];
   let activeFolder = "all";
+  let activeCategory = "recent";
   let searchTerm = "";
+  let playerVisible = false;
   let wakeLock = null;
   let keepAwakeWanted = true;
   let safariAirPlayAvailable = false;
@@ -222,6 +251,25 @@ function createApp({
   function selectedMovie() {
     const movieId = movieSelect.value;
     return allMovies.find((movie) => movie.id === movieId) || null;
+  }
+
+  function setPlayerVisibility(visible, { scroll = false } = {}) {
+    playerVisible = Boolean(visible);
+    if (watchPlaceholder) {
+      watchPlaceholder.hidden = playerVisible;
+    }
+    if (playerFrame) {
+      playerFrame.hidden = !playerVisible;
+    }
+    const watchMeta = playerFrame && playerFrame.parentNode && typeof playerFrame.parentNode.querySelector === "function"
+      ? playerFrame.parentNode.querySelector(".watch-meta")
+      : null;
+    if (watchMeta) {
+      watchMeta.hidden = !playerVisible;
+    }
+    if (scroll && playerVisible && watchStage && typeof watchStage.scrollIntoView === "function") {
+      watchStage.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }
 
   function updateMediaSession(movie) {
@@ -955,8 +1003,9 @@ function createApp({
       || (activeFolder === "" && !movie.folder)
       || movie.folder === activeFolder
       || movie.folder.startsWith(`${activeFolder}/`);
+    const categoryMatches = activeCategory === "recent" || classifyMovie(movie) === activeCategory;
     const searchable = `${movie.title || ""} ${movie.fileName || ""} ${movie.folder || ""}`.toLowerCase();
-    return folderMatches && searchable.includes(searchTerm);
+    return folderMatches && categoryMatches && searchable.includes(searchTerm);
   }
 
   function updateLibrarySummary(movies) {
@@ -991,7 +1040,7 @@ function createApp({
     }
 
     const documentRef = folderShelf.ownerDocument;
-    const folders = buildFoldersFromMovies(allMovies, allFolders);
+    const folders = filterMovieFolders(buildFoldersFromMovies(allMovies, allFolders));
     const buttons = [];
 
     function createFolderButton(label, folderPath, count, extraText = "") {
@@ -1017,11 +1066,39 @@ function createApp({
         displayFolderLabel(folder.name),
         folder.path,
         folder.movieCount || 0,
-        folder.hidden ? "hidden" : "",
       ));
     }
 
     folderShelf.replaceChildren(...buttons);
+  }
+
+  function renderCategoryShelf() {
+    if (!categoryShelf || typeof categoryShelf.replaceChildren !== "function") {
+      return;
+    }
+
+    const documentRef = categoryShelf.ownerDocument;
+    const categories = [
+      ["recent", "All"],
+      ["adults", "Adults"],
+      ["kids", "Kids"],
+    ];
+    const buttons = categories.map(([category, label]) => {
+      const button = documentRef.createElement("button");
+      button.type = "button";
+      button.className = "category-chip";
+      button.textContent = label;
+      button.setAttribute("aria-pressed", activeCategory === category ? "true" : "false");
+      if (activeCategory === category) {
+        button.classList.add("active");
+      }
+      button.addEventListener("click", () => {
+        activeCategory = category;
+        renderLibrary();
+      });
+      return button;
+    });
+    categoryShelf.replaceChildren(...buttons);
   }
 
   function renderMovieGrid() {
@@ -1095,7 +1172,7 @@ function createApp({
         movieSelect.value = movie.id;
         rememberMovieForProfile(movie.id);
         updateNowPlaying(movie);
-        playSelectedMovie().catch((error) => {
+        playSelectedMovie({ scrollToPlayer: true }).catch((error) => {
           updateStatus(error.message);
         });
       });
@@ -1108,6 +1185,7 @@ function createApp({
 
   function renderLibrary() {
     updateLibrarySummary(allMovies);
+    renderCategoryShelf();
     renderFolderShelf();
     renderMovieGrid();
   }
@@ -1119,6 +1197,7 @@ function createApp({
       resumeAfterRefresh = null;
       movieSelect.value = "";
       setAuthenticated(false);
+      setPlayerVisibility(false);
       player.removeAttribute("src");
       player.load();
       const sessionError = new Error("Your session expired. Sign in again to keep watching.");
@@ -1158,6 +1237,7 @@ function createApp({
 
     if (!movies.length) {
       movieSelect.disabled = true;
+      setPlayerVisibility(false);
       player.removeAttribute("src");
       player.load();
       updateNowPlaying(null);
@@ -1180,6 +1260,7 @@ function createApp({
       playbackRequestVersion += 1;
       movieSelect.value = "";
       movieSelect.disabled = true;
+      setPlayerVisibility(false);
       player.removeAttribute("src");
       player.load();
       updateNowPlaying(null);
@@ -1194,13 +1275,18 @@ function createApp({
       : playableMovies[0].id;
 
     movieSelect.disabled = false;
-    updateNowPlaying(selectedMovie());
-    updateStatus("Library ready. Loading the selected movie for smooth playback.");
+    if (!playerVisible) {
+      updateNowPlaying(null);
+      updateStatus("Library ready. Choose a movie to start streaming.");
+    } else {
+      updateNowPlaying(selectedMovie());
+      updateStatus("Library ready.");
+    }
     renderLibrary();
     return playableMovies;
   }
 
-  async function playSelectedMovie({ isRefresh = false, expectedMovieId = null, resumeState = null } = {}) {
+  async function playSelectedMovie({ isRefresh = false, expectedMovieId = null, resumeState = null, scrollToPlayer = false } = {}) {
     const movieId = expectedMovieId || movieSelect.value;
     if (!isRefresh) {
       clearStallRecovery();
@@ -1213,6 +1299,8 @@ function createApp({
       updateStatus("Select a movie to start streaming.");
       return false;
     }
+
+    setPlayerVisibility(true, { scroll: scrollToPlayer });
 
     const requestVersion = ++playbackRequestVersion;
     updateStatus("Requesting a secure playback link…");
@@ -1418,7 +1506,6 @@ function createApp({
       return;
     }
 
-    await playSelectedMovie();
   }
 
   async function handleLogout() {
@@ -1437,12 +1524,14 @@ function createApp({
     playbackRequestVersion += 1;
     resumeAfterRefresh = null;
     setAuthenticated(false);
+    setPlayerVisibility(false);
     movieSelect.innerHTML = "";
     movieSelect.value = "";
     movieSelect.disabled = true;
     allMovies = [];
     allFolders = [];
     activeFolder = "all";
+    activeCategory = "recent";
     searchTerm = "";
     if (searchInput) {
       searchInput.value = "";
@@ -1501,7 +1590,7 @@ function createApp({
     movieSelect.addEventListener("change", () => {
       rememberMovieForProfile(movieSelect.value);
       updateNowPlaying(selectedMovie());
-      playSelectedMovie().catch((error) => {
+      playSelectedMovie({ scrollToPlayer: true }).catch((error) => {
         updateStatus(error.message);
       });
     });
@@ -1511,8 +1600,8 @@ function createApp({
         const previousSelection = movieSelect.value;
         const movies = await loadLibrary(previousSelection);
 
-        if (movies.length && movieSelect.value) {
-          await playSelectedMovie();
+        if (movies.length && !playerVisible) {
+          updateStatus("Library ready. Choose a movie to start streaming.");
         }
       } catch (error) {
         updateStatus(error.message);
@@ -1560,8 +1649,8 @@ function createApp({
         const nextMovie = rememberedMovie || fallbackMovie;
         if (nextMovie) {
           movieSelect.value = nextMovie.id;
-          updateNowPlaying(nextMovie);
-          playSelectedMovie().catch((error) => updateStatus(error.message));
+          updateNowPlaying(null);
+          updateStatus("Choose a movie to start streaming.");
         }
       });
     }
@@ -1776,10 +1865,7 @@ function createApp({
           return;
         }
 
-        const movies = await loadLibrary();
-        if (movies.length) {
-          await playSelectedMovie();
-        }
+        await loadLibrary();
       })
       .catch((error) => {
         updateStatus(error.message);
@@ -1817,7 +1903,10 @@ if (typeof document !== "undefined") {
     loginStatus: document.getElementById("login-status"),
     librarySummary: document.getElementById("library-summary"),
     folderShelf: document.getElementById("folder-shelf"),
+    categoryShelf: document.getElementById("category-shelf"),
     movieGrid: document.getElementById("movie-grid"),
+    watchPlaceholder: document.getElementById("watch-placeholder"),
+    watchStage: document.querySelector(".watch-stage"),
     permissionPanel: document.getElementById("permission-panel"),
     enablePermissionsButton: document.getElementById("enable-permissions"),
     skipPermissionsButton: document.getElementById("skip-permissions"),
@@ -1846,5 +1935,5 @@ if (typeof document !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { createApp };
+  module.exports = { classifyMovie, createApp, filterMovieFolders };
 }
