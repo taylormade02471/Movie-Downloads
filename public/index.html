@@ -165,11 +165,13 @@
         <video
           id="player"
           controls
-          preload="metadata"
+          preload="auto"
           playsinline
           controlsList="nodownload"
+          aria-describedby="status"
         ></video>
-        <p id="status" class="status">Checking session…</p>
+        <p class="detail">Smooth playback loads the selected movie ahead inside this page and may use more data.</p>
+        <p id="status" class="status" role="status" aria-live="polite">Checking session…</p>
       </section>
     </main>
 

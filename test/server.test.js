@@ -74,10 +74,10 @@ test("serves the watch page and protects the movie catalog", async (t) => {
   assert.equal(moviesResponse.status, 401);
 });
 
-test("preloads only movie metadata before the viewer presses play", () => {
+test("preloads the selected movie for smoother in-page playback", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
-  assert.match(html, /<video[\s\S]*preload="metadata"[\s\S]*><\/video>/);
-  assert.doesNotMatch(html, /preload="auto"/);
+  assert.match(html, /<video[\s\S]*preload="auto"[\s\S]*><\/video>/);
+  assert.doesNotMatch(html, /preload="metadata"/);
 });
 
 test("logs in, lists nested local movies, resolves playback, and logs out", async (t) => {
@@ -541,7 +541,7 @@ test("starts the selected movie after a successful login", async () => {
   await app.handleLogin({ preventDefault() {} });
 
   assert.equal(player.src, "https://download.example/movie-1");
-  assert.equal(status.textContent, "Connecting to stream and buffering playback…");
+  assert.equal(status.textContent, "Loading video ahead for smooth playback…");
   assert.deepEqual(
     requests.map((request) => request.url),
     ["/api/login", "/api/movies", "/api/playback"],
@@ -579,6 +579,7 @@ test("refreshes a temporary playback link once after a player error", async () =
   const submitButton = { disabled: false };
   const player = {
     src: "",
+    error: { code: 2 },
     currentTime: 42,
     duration: 120,
     paused: false,
@@ -641,6 +642,7 @@ test("refreshes a temporary playback link once after a player error", async () =
     },
     locationOrigin: "http://127.0.0.1:3000",
     createOption: () => ({}),
+    maxPlaybackRefreshes: 1,
   });
 
   app.initialize();
@@ -661,7 +663,238 @@ test("refreshes a temporary playback link once after a player error", async () =
   listeners["player:error"]();
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(playbackRequests, 2);
-  assert.equal(status.textContent, "This movie could not be played in the browser.");
+  assert.equal(status.textContent, "This movie could not keep a stable streaming connection.");
+});
+
+test("selects an uploaded movie and labels unfinished OneDrive entries", async () => {
+  const options = [];
+  const movieSelect = {
+    value: "",
+    innerHTML: "",
+    disabled: true,
+    appendChild(option) {
+      options.push(option);
+      if (!this.value) {
+        this.value = option.value;
+      }
+    },
+  };
+  const player = {
+    load() {},
+    removeAttribute() {},
+  };
+  const status = { textContent: "" };
+
+  const app = createApp({
+    movieSelect,
+    reloadButton: {},
+    logoutButton: {},
+    passwordForm: {},
+    passwordInput: {},
+    player,
+    status,
+    loginStatus: {},
+    authPanel: {},
+    libraryPanel: {},
+    fetchImpl: async (url) => {
+      assert.equal(url, "/api/movies");
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ([
+          { id: "uploading", title: "Movie Uploading", folder: "", size: 0 },
+          { id: "ready", title: "Movie Ready", folder: "", size: 1639238719 },
+        ]),
+      };
+    },
+    locationOrigin: "http://127.0.0.1:3000",
+    createOption: () => ({}),
+  });
+
+  const playableMovies = await app.loadLibrary();
+
+  assert.equal(playableMovies.length, 1);
+  assert.equal(movieSelect.value, "ready");
+  assert.equal(movieSelect.disabled, false);
+  assert.equal(options[0].disabled, true);
+  assert.match(options[0].textContent, /still uploading/i);
+  assert.equal(options[1].disabled, false);
+});
+
+test("refreshes and resumes a stream after a sustained stall", async () => {
+  const listeners = {};
+  const timers = [];
+  let resumedPlayCalls = 0;
+  let playbackRequests = 0;
+  let resolveRefreshResponse;
+  const movieSelect = {
+    value: "",
+    innerHTML: "",
+    disabled: true,
+    addEventListener(name, listener) {
+      listeners[`select:${name}`] = listener;
+    },
+    appendChild(option) {
+      if (!this.value) {
+        this.value = option.value;
+      }
+    },
+  };
+  const player = {
+    src: "",
+    currentTime: 42,
+    duration: 120,
+    paused: false,
+    ended: false,
+    buffered: { length: 0 },
+    load() {},
+    play: async () => {
+      resumedPlayCalls += 1;
+    },
+    addEventListener(name, listener) {
+      listeners[`player:${name}`] = listener;
+    },
+    removeAttribute() {},
+  };
+
+  const app = createApp({
+    movieSelect,
+    reloadButton: { addEventListener() {} },
+    logoutButton: { addEventListener() {} },
+    passwordForm: { addEventListener() {} },
+    passwordInput: {
+      disabled: false,
+      removeAttribute() {},
+      setAttribute() {},
+    },
+    submitButton: { disabled: false },
+    player,
+    status: { textContent: "" },
+    loginStatus: { textContent: "" },
+    authPanel: { hidden: false },
+    libraryPanel: { hidden: true },
+    fetchImpl: async (url, options = {}) => {
+      if (url === "/api/session") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ authenticated: true, authConfigured: true }),
+        };
+      }
+      if (url === "/api/movies") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ([
+            { id: "movie-1", title: "Movie One", folder: "", size: 1024 },
+          ]),
+        };
+      }
+      if (url === "/api/playback") {
+        assert.equal(options.body, JSON.stringify({ movieId: "movie-1" }));
+        playbackRequests += 1;
+        if (playbackRequests === 2) {
+          return new Promise((resolve) => {
+            resolveRefreshResponse = () => resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({ url: "https://download.example/movie-1-2" }),
+            });
+          });
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ url: `https://download.example/movie-1-${playbackRequests}` }),
+        };
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    },
+    locationOrigin: "http://127.0.0.1:3000",
+    createOption: () => ({}),
+    setTimeoutImpl: (callback, delay) => {
+      assert.equal(delay, 12000);
+      timers.push(callback);
+      return timers.length;
+    },
+    clearTimeoutImpl() {},
+  });
+
+  app.initialize();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(playbackRequests, 1);
+
+  listeners["player:waiting"]();
+  listeners["player:stalled"]();
+  assert.equal(timers.length, 1);
+
+  timers[0]();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(playbackRequests, 2);
+  assert.equal(typeof resolveRefreshResponse, "function");
+
+  player.currentTime = 5;
+  listeners["player:loadedmetadata"]();
+  assert.equal(player.currentTime, 5);
+  assert.equal(resumedPlayCalls, 0);
+
+  resolveRefreshResponse();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(player.src, "https://download.example/movie-1-2");
+
+  player.currentTime = 0;
+  listeners["player:loadedmetadata"]();
+  assert.equal(player.currentTime, 42);
+  assert.equal(resumedPlayCalls, 1);
+});
+
+test("ignores a superseded playback failure after a newer movie loads", async () => {
+  let rejectOldPlayback;
+  const movieSelect = { value: "movie-old" };
+  const player = {
+    src: "",
+    load() {},
+  };
+  const status = { textContent: "" };
+
+  const app = createApp({
+    movieSelect,
+    reloadButton: {},
+    logoutButton: {},
+    passwordForm: {},
+    passwordInput: {},
+    player,
+    status,
+    loginStatus: {},
+    authPanel: {},
+    libraryPanel: {},
+    fetchImpl: async (url, options) => {
+      assert.equal(url, "/api/playback");
+      const { movieId } = JSON.parse(options.body);
+      if (movieId === "movie-old") {
+        return new Promise((resolve, reject) => {
+          rejectOldPlayback = reject;
+        });
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ url: "https://download.example/movie-new" }),
+      };
+    },
+    locationOrigin: "http://127.0.0.1:3000",
+    createOption: () => ({}),
+  });
+
+  const oldRequest = app.playSelectedMovie();
+  movieSelect.value = "movie-new";
+  assert.equal(await app.playSelectedMovie(), true);
+  assert.equal(player.src, "https://download.example/movie-new");
+
+  rejectOldPlayback(new Error("Old stream failed"));
+  assert.equal(await oldRequest, false);
+  assert.equal(player.src, "https://download.example/movie-new");
+  assert.equal(status.textContent, "Loading video ahead for smooth playback…");
 });
 
 test("returns 403 for unreadable movie streams on HEAD requests", async (t) => {
