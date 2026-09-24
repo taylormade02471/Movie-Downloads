@@ -1,0 +1,38 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.movieroom.firetv"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.movieroom.firetv"
+        minSdk 23
+        targetSdk 35
+        versionCode 1
+        versionName "0.1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField "String", "MOVIE_ROOM_BASE_URL", "\"https://movie-downloads-six.vercel.app\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation "androidx.appcompat:appcompat:1.7.0"
+    implementation "androidx.leanback:leanback:1.2.0-alpha04"
+    implementation "androidx.media3:media3-exoplayer:1.5.1"
+    implementation "androidx.media3:media3-ui:1.5.1"
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "androidx.test:core:1.6.1"
+    testImplementation "org.json:json:20240303"
+    testImplementation "org.robolectric:robolectric:4.14.1"
+}
