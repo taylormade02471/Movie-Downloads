@@ -47,6 +47,14 @@ function createApp({
     }
   }
 
+  function announceLoginError(message) {
+    updateLoginStatus(message);
+    setPasswordErrorState(true);
+    if (typeof loginStatus.focus === "function") {
+      loginStatus.focus();
+    }
+  }
+
   function movieLabel(movie) {
     const sizeInGb = (movie.size / (1024 ** 3)).toFixed(2);
     const folderLabel = movie.folder ? ` — ${movie.folder}` : "";
@@ -192,13 +200,9 @@ function createApp({
       if (response.status === 503) {
         setAuthUnavailable(true);
       }
-      updateLoginStatus(payload?.error || "Unable to sign in.");
-      setPasswordErrorState(true);
+      announceLoginError(payload?.error || "Unable to sign in.");
       setAuthenticated(false);
       passwordInput.select();
-      if (typeof loginStatus.focus === "function") {
-        loginStatus.focus();
-      }
       return;
     }
 
@@ -237,6 +241,7 @@ function createApp({
     player.removeAttribute("src");
     player.load();
     movieSelect.innerHTML = "";
+    movieSelect.disabled = true;
     updateStatus("Signed out.");
   }
 
@@ -268,7 +273,7 @@ function createApp({
 
     passwordForm.addEventListener("submit", (event) => {
       handleLogin(event).catch((error) => {
-        updateLoginStatus(error.message);
+        announceLoginError(error.message);
       });
     });
 

@@ -579,6 +579,7 @@ function createRequestHandler(options = {}) {
               authenticated: false,
               expiresAt: null,
               provider: context.provider.kind,
+              authConfigured: true,
             }, noStoreHeaders(error.headers));
             return;
           }

@@ -165,6 +165,7 @@ test("expires and rejects tampered sessions", async (t) => {
   assert.equal(tamperedResponse.status, 200);
   assert.deepEqual(await tamperedResponse.json(), {
     authenticated: false,
+    authConfigured: true,
     expiresAt: null,
     provider: "local",
   });
@@ -176,6 +177,7 @@ test("expires and rejects tampered sessions", async (t) => {
   assert.equal(expiredSessionResponse.status, 200);
   assert.deepEqual(await expiredSessionResponse.json(), {
     authenticated: false,
+    authConfigured: true,
     expiresAt: null,
     provider: "local",
   });
