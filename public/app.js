@@ -4,6 +4,7 @@ function createApp({
   logoutButton,
   passwordForm,
   passwordInput,
+  submitButton,
   player,
   status,
   loginStatus,
@@ -37,6 +38,13 @@ function createApp({
   function setAuthenticated(authenticated) {
     authPanel.hidden = authenticated;
     libraryPanel.hidden = !authenticated;
+  }
+
+  function setAuthUnavailable(unavailable) {
+    passwordInput.disabled = unavailable;
+    if (submitButton) {
+      submitButton.disabled = unavailable;
+    }
   }
 
   function movieLabel(movie) {
@@ -128,6 +136,7 @@ function createApp({
   async function loadSession() {
     const response = await fetchImpl("/api/session", { credentials: "same-origin" });
     if (response.status === 401) {
+      setAuthUnavailable(false);
       setAuthenticated(false);
       updateStatus("Sign in to browse the movie library.");
       return false;
@@ -135,11 +144,17 @@ function createApp({
 
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
-      updateStatus(payload?.error || "Unable to verify the current session.");
+      const message = payload?.error || "Unable to verify the current session.";
+      if (response.status === 503) {
+        setAuthUnavailable(true);
+        updateLoginStatus(message);
+      }
+      updateStatus(message);
       return false;
     }
 
     const session = await response.json();
+    setAuthUnavailable(false);
     setAuthenticated(session.authenticated);
     if (!session.authenticated) {
       updateStatus("Sign in to browse the movie library.");
@@ -164,6 +179,9 @@ function createApp({
 
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
+      if (response.status === 503) {
+        setAuthUnavailable(true);
+      }
       updateLoginStatus(payload?.error || "Unable to sign in.");
       setPasswordErrorState(true);
       setAuthenticated(false);
@@ -177,6 +195,7 @@ function createApp({
     passwordInput.value = "";
     updateLoginStatus("");
     setPasswordErrorState(false);
+    setAuthUnavailable(false);
     setAuthenticated(true);
     let movies;
     try {
@@ -299,6 +318,7 @@ if (typeof document !== "undefined") {
     logoutButton: document.getElementById("logout"),
     passwordForm: document.getElementById("password-form"),
     passwordInput: document.getElementById("password"),
+    submitButton: document.getElementById("login-submit"),
     player: document.getElementById("player"),
     status: document.getElementById("status"),
     loginStatus: document.getElementById("login-status"),

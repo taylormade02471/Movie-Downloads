@@ -327,6 +327,7 @@ test("surfaces movie library load failures in the status message", async () => {
     select() {},
     setAttribute() {},
   };
+  const submitButton = { disabled: false };
   const player = {
     currentSrc: "",
     load() {},
@@ -344,6 +345,7 @@ test("surfaces movie library load failures in the status message", async () => {
     logoutButton,
     passwordForm,
     passwordInput,
+    submitButton,
     player,
     status,
     loginStatus,
