@@ -67,3 +67,35 @@ test("supports partial content requests for background buffering and seeking", a
   assert.equal(response.headers.get("content-range"), "bytes 2-5/10");
   assert.equal(await response.text(), "2345");
 });
+
+test("supports suffix byte ranges and HEAD range probes", async (t) => {
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  fs.writeFileSync(path.join(moviesDir, "clip.mp4"), "0123456789");
+
+  const server = createServer({ moviesDir, publicDir });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const suffixResponse = await fetch(`http://127.0.0.1:${port}/api/stream/clip.mp4`, {
+    headers: { Range: "bytes=-4" },
+  });
+
+  assert.equal(suffixResponse.status, 206);
+  assert.equal(suffixResponse.headers.get("content-range"), "bytes 6-9/10");
+  assert.equal(await suffixResponse.text(), "6789");
+
+  const headResponse = await fetch(`http://127.0.0.1:${port}/api/stream/clip.mp4`, {
+    method: "HEAD",
+    headers: { Range: "bytes=2-5" },
+  });
+
+  assert.equal(headResponse.status, 206);
+  assert.equal(headResponse.headers.get("content-range"), "bytes 2-5/10");
+  assert.equal(headResponse.headers.get("content-length"), "4");
+  assert.equal(await headResponse.text(), "");
+});

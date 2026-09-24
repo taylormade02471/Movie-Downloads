@@ -10,7 +10,7 @@ A lightweight web app for streaming movies from your own shared library in the b
 
 ## Getting started
 
-1. Put movie files such as `.mp4`, `.m4v`, `.mov`, `.webm`, `.ogg`, or `.mkv` into `/home/runner/work/Movie-Downloads/Movie-Downloads/movies/`
+1. Put movie files such as `.mp4`, `.m4v`, `.mov`, `.webm`, `.ogg`, or `.mkv` into the project’s `movies/` folder
 2. Start the app:
 
    ```bash

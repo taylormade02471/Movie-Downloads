@@ -33,7 +33,7 @@ function getContentType(filePath) {
 
 function isWithinDirectory(parentDir, targetPath) {
   const relative = path.relative(parentDir, targetPath);
-  return relative && !relative.startsWith("..") && !path.isAbsolute(relative);
+  return (relative === "" || !relative.startsWith("..")) && !path.isAbsolute(relative);
 }
 
 async function listMovies(moviesDir) {
@@ -98,31 +98,47 @@ async function sendJson(response, statusCode, payload) {
   response.end(JSON.stringify(payload));
 }
 
-function streamFile(request, response, filePath, size) {
+function getStreamHeaders(filePath, size, range) {
   const contentType = getContentType(filePath);
-  const range = request.headers.range;
 
   if (!range) {
-    response.writeHead(200, {
-      "Content-Length": size,
-      "Content-Type": contentType,
-      "Accept-Ranges": "bytes",
-      "Cache-Control": "no-store",
-    });
-
-    createReadStream(filePath).pipe(response);
-    return;
+    return {
+      statusCode: 200,
+      headers: {
+        "Content-Length": size,
+        "Content-Type": contentType,
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-store",
+      },
+    };
   }
 
   const match = /^bytes=(\d*)-(\d*)$/.exec(range);
   if (!match) {
-    response.writeHead(416, { "Content-Range": `bytes */${size}` });
-    response.end();
-    return;
+    return {
+      statusCode: 416,
+      headers: { "Content-Range": `bytes */${size}` },
+    };
   }
 
-  const start = match[1] ? Number.parseInt(match[1], 10) : 0;
-  const end = match[2] ? Number.parseInt(match[2], 10) : size - 1;
+  let start;
+  let end;
+
+  if (match[1] === "" && match[2] !== "") {
+    const suffixLength = Number.parseInt(match[2], 10);
+    if (Number.isNaN(suffixLength) || suffixLength <= 0) {
+      return {
+        statusCode: 416,
+        headers: { "Content-Range": `bytes */${size}` },
+      };
+    }
+
+    start = Math.max(size - suffixLength, 0);
+    end = size - 1;
+  } else {
+    start = match[1] ? Number.parseInt(match[1], 10) : 0;
+    end = match[2] ? Number.parseInt(match[2], 10) : size - 1;
+  }
 
   if (
     Number.isNaN(start) ||
@@ -132,20 +148,44 @@ function streamFile(request, response, filePath, size) {
     start >= size ||
     end >= size
   ) {
-    response.writeHead(416, { "Content-Range": `bytes */${size}` });
-    response.end();
+    return {
+      statusCode: 416,
+      headers: { "Content-Range": `bytes */${size}` },
+    };
+  }
+
+  return {
+    statusCode: 206,
+    headers: {
+      "Content-Range": `bytes ${start}-${end}/${size}`,
+      "Content-Length": end - start + 1,
+      "Content-Type": contentType,
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "no-store",
+    },
+    start,
+    end,
+  };
+}
+
+function streamFile(request, response, filePath, size) {
+  const streamResponse = getStreamHeaders(filePath, size, request.headers.range);
+  response.writeHead(streamResponse.statusCode, streamResponse.headers);
+
+  if (streamResponse.statusCode !== 206) {
+    if (streamResponse.statusCode !== 200) {
+      response.end();
+      return;
+    }
+
+    createReadStream(filePath).pipe(response);
     return;
   }
 
-  response.writeHead(206, {
-    "Content-Range": `bytes ${start}-${end}/${size}`,
-    "Content-Length": end - start + 1,
-    "Content-Type": contentType,
-    "Accept-Ranges": "bytes",
-    "Cache-Control": "no-store",
-  });
-
-  createReadStream(filePath, { start, end }).pipe(response);
+  createReadStream(filePath, {
+    start: streamResponse.start,
+    end: streamResponse.end,
+  }).pipe(response);
 }
 
 function createServer(options = {}) {
@@ -188,12 +228,8 @@ function createServer(options = {}) {
         }
 
         if (request.method === "HEAD") {
-          response.writeHead(200, {
-            "Content-Length": stats.size,
-            "Content-Type": getContentType(filePath),
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "no-store",
-          });
+          const streamResponse = getStreamHeaders(filePath, stats.size, request.headers.range);
+          response.writeHead(streamResponse.statusCode, streamResponse.headers);
           response.end();
           return;
         }
@@ -248,6 +284,7 @@ if (require.main === module) {
 
 module.exports = {
   createServer,
+  getStreamHeaders,
   listMovies,
   resolveMoviePath,
   getContentType,

@@ -43,11 +43,12 @@ async function loadLibrary() {
 
 function playSelectedMovie() {
   const streamPath = movieSelect.value;
-  if (!streamPath) {
+  if (!streamPath || !streamPath.startsWith("/api/stream/")) {
+    updateStatus("Invalid movie stream path.");
     return;
   }
 
-  player.src = streamPath;
+  player.src = new URL(streamPath, window.location.origin).toString();
   player.load();
   updateStatus("Connecting to stream and buffering playback…");
 }
