@@ -56,6 +56,7 @@ function createApp({
 
   async function loadLibrary(selectedMovieId = movieSelect.value) {
     updateStatus("Loading library…");
+    movieSelect.disabled = true;
 
     const response = await handleApiResponse(
       await fetchImpl("/api/movies", { credentials: "same-origin" }),
@@ -66,6 +67,7 @@ function createApp({
     movieSelect.innerHTML = "";
 
     if (!movies.length) {
+      movieSelect.disabled = true;
       player.removeAttribute("src");
       player.load();
       updateStatus("No movies found yet. Add supported video files to the active movie provider.");
@@ -84,6 +86,7 @@ function createApp({
       movieSelect.value = selectedMovieId;
     }
 
+    movieSelect.disabled = false;
     updateStatus("Library ready. Select a movie to start streaming.");
     return movies;
   }
@@ -156,9 +159,16 @@ function createApp({
 
     passwordInput.value = "";
     updateLoginStatus("");
-    setAuthenticated(false);
-    const movies = await loadLibrary();
     setAuthenticated(true);
+    let movies;
+    try {
+      movies = await loadLibrary();
+    } catch (error) {
+      if (authPanel.hidden) {
+        setAuthenticated(false);
+      }
+      throw error;
+    }
     if (!movies.length) {
       updateStatus("No movies found yet. Add supported video files to the active movie provider.");
     }
