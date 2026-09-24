@@ -59,6 +59,10 @@ function createApp({
   const expectedLibraryCount = 16;
   const permissionStorageKey = "movie_room_permissions_v1";
 
+  function hasMethod(value, methodName) {
+    return Boolean(value && typeof value[methodName] === "function");
+  }
+
   function updateStatus(message) {
     status.textContent = message;
   }
@@ -134,7 +138,7 @@ function createApp({
   }
 
   function updateMediaSession(movie) {
-    if (!navigatorRef?.mediaSession || !mediaMetadataCtor || !movie) {
+    if (!navigatorRef || !navigatorRef.mediaSession || !mediaMetadataCtor || !movie) {
       return;
     }
 
@@ -149,8 +153,16 @@ function createApp({
     }
 
     const actions = {
-      play: () => player.play?.(),
-      pause: () => player.pause?.(),
+      play: () => {
+        if (hasMethod(player, "play")) {
+          player.play();
+        }
+      },
+      pause: () => {
+        if (hasMethod(player, "pause")) {
+          player.pause();
+        }
+      },
       seekbackward: () => {
         player.currentTime = Math.max((Number(player.currentTime) || 0) - 10, 0);
       },
@@ -172,7 +184,7 @@ function createApp({
   }
 
   function updatePlaybackState(state) {
-    if (navigatorRef?.mediaSession) {
+    if (navigatorRef && navigatorRef.mediaSession) {
       navigatorRef.mediaSession.playbackState = state;
     }
   }
@@ -182,7 +194,7 @@ function createApp({
       return;
     }
 
-    if (!navigatorRef?.wakeLock?.request) {
+    if (!navigatorRef || !navigatorRef.wakeLock || !hasMethod(navigatorRef.wakeLock, "request")) {
       keepAwakeButton.textContent = "Keep Awake Unavailable";
       keepAwakeButton.disabled = true;
       return;
@@ -199,17 +211,19 @@ function createApp({
   }
 
   async function requestWakeLock() {
-    if (!navigatorRef?.wakeLock?.request || wakeLock) {
+    if (!navigatorRef || !navigatorRef.wakeLock || !hasMethod(navigatorRef.wakeLock, "request") || wakeLock) {
       updateKeepAwakeButton();
       return false;
     }
 
     try {
       wakeLock = await navigatorRef.wakeLock.request("screen");
-      wakeLock.addEventListener?.("release", () => {
-        wakeLock = null;
-        updateKeepAwakeButton();
-      });
+      if (hasMethod(wakeLock, "addEventListener")) {
+        wakeLock.addEventListener("release", () => {
+          wakeLock = null;
+          updateKeepAwakeButton();
+        });
+      }
       updateKeepAwakeButton("Keep awake is on while this browser stays open.");
       return true;
     } catch {
@@ -221,7 +235,7 @@ function createApp({
   async function releaseWakeLock() {
     const lock = wakeLock;
     wakeLock = null;
-    if (lock?.release) {
+    if (hasMethod(lock, "release")) {
       await lock.release().catch(() => {});
     }
     updateKeepAwakeButton();
@@ -247,11 +261,11 @@ function createApp({
   }
 
   function browserInfo() {
-    const userAgent = navigatorRef?.userAgent || "";
-    const vendor = navigatorRef?.vendor || "";
+    const userAgent = navigatorRef && navigatorRef.userAgent ? navigatorRef.userAgent : "";
+    const vendor = navigatorRef && navigatorRef.vendor ? navigatorRef.vendor : "";
     const isChromium = /Chrome|CriOS|Chromium|Edg|OPR/i.test(userAgent);
     const isSafari = /Safari/i.test(userAgent) && /Apple/i.test(vendor) && !/Chrome|CriOS|Chromium|Edg|OPR/i.test(userAgent);
-    const isIOS = /iPad|iPhone|iPod/i.test(userAgent) || (navigatorRef?.platform === "MacIntel" && navigatorRef?.maxTouchPoints > 1);
+    const isIOS = /iPad|iPhone|iPod/i.test(userAgent) || (navigatorRef && navigatorRef.platform === "MacIntel" && navigatorRef.maxTouchPoints > 1);
     const isAndroid = /Android/i.test(userAgent);
 
     return { isAndroid, isChromium, isIOS, isSafari };
@@ -279,15 +293,23 @@ function createApp({
     return "Start the movie, then use your browser's Cast, AirPlay, or screen-mirroring option. TV discovery happens through the same Wi-Fi network.";
   }
 
-  function castDeviceName(session = googleCastContext?.getCurrentSession?.()) {
-    const friendlyName = session?.getCastDevice?.()?.friendlyName;
+  function castDeviceName(session) {
+    const activeSession = session || (googleCastContext && hasMethod(googleCastContext, "getCurrentSession")
+      ? googleCastContext.getCurrentSession()
+      : null);
+    const castDevice = activeSession && hasMethod(activeSession, "getCastDevice")
+      ? activeSession.getCastDevice()
+      : null;
+    const friendlyName = castDevice && castDevice.friendlyName;
     return typeof friendlyName === "string" && friendlyName.trim()
       ? friendlyName.trim()
       : "Google TV";
   }
 
   function castState() {
-    return googleCastContext?.getCastState?.() || "";
+    return googleCastContext && hasMethod(googleCastContext, "getCastState")
+      ? googleCastContext.getCastState()
+      : "";
   }
 
   async function initializeGoogleCast() {
@@ -296,13 +318,17 @@ function createApp({
       return false;
     }
 
-    const castAvailable = await windowRef?.__movieRoomCastApiReady;
-    const castFramework = windowRef?.cast?.framework;
-    const chromeCast = windowRef?.chrome?.cast;
+    const castAvailable = windowRef ? await windowRef.__movieRoomCastApiReady : false;
+    const castFramework = windowRef && windowRef.cast ? windowRef.cast.framework : null;
+    const chromeCast = windowRef && windowRef.chrome ? windowRef.chrome.cast : null;
     if (
       !castAvailable
-      || !castFramework?.CastContext?.getInstance
-      || !chromeCast?.media?.DEFAULT_MEDIA_RECEIVER_APP_ID
+      || !castFramework
+      || !castFramework.CastContext
+      || !hasMethod(castFramework.CastContext, "getInstance")
+      || !chromeCast
+      || !chromeCast.media
+      || !chromeCast.media.DEFAULT_MEDIA_RECEIVER_APP_ID
     ) {
       updateCastButton();
       updateTvGuide();
@@ -312,11 +338,13 @@ function createApp({
     googleCastContext = castFramework.CastContext.getInstance();
     googleCastContext.setOptions({
       receiverApplicationId: chromeCast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
-      autoJoinPolicy: chromeCast.AutoJoinPolicy?.ORIGIN_SCOPED,
+      autoJoinPolicy: chromeCast.AutoJoinPolicy ? chromeCast.AutoJoinPolicy.ORIGIN_SCOPED : undefined,
     });
     googleCastReady = true;
 
-    const castStateChanged = castFramework.CastContextEventType?.CAST_STATE_CHANGED;
+    const castStateChanged = castFramework.CastContextEventType
+      ? castFramework.CastContextEventType.CAST_STATE_CHANGED
+      : null;
     if (castStateChanged) {
       googleCastContext.addEventListener(castStateChanged, () => {
         updateCastButton();
@@ -324,7 +352,9 @@ function createApp({
       });
     }
 
-    const sessionStateChanged = castFramework.CastContextEventType?.SESSION_STATE_CHANGED;
+    const sessionStateChanged = castFramework.CastContextEventType
+      ? castFramework.CastContextEventType.SESSION_STATE_CHANGED
+      : null;
     if (sessionStateChanged) {
       googleCastContext.addEventListener(sessionStateChanged, () => {
         updateCastButton();
@@ -361,8 +391,8 @@ function createApp({
 
     updateStatus(`Preparing ${movie.title || "this movie"} for ${castDeviceName(session)}...`);
     const playback = await requestCastPlayback(movie.id);
-    const mediaApi = windowRef?.chrome?.cast?.media;
-    if (!mediaApi?.MediaInfo || !mediaApi?.LoadRequest) {
+    const mediaApi = windowRef && windowRef.chrome && windowRef.chrome.cast ? windowRef.chrome.cast.media : null;
+    if (!mediaApi || !mediaApi.MediaInfo || !mediaApi.LoadRequest) {
       throw new Error("Google Cast became unavailable. Reload Chrome and try again.");
     }
 
@@ -380,7 +410,9 @@ function createApp({
       ? Math.max(0, player.currentTime)
       : 0;
     await session.loadMedia(request);
-    player.pause?.();
+    if (hasMethod(player, "pause")) {
+      player.pause();
+    }
     updateStatus(`Playing on ${castDeviceName(session)}. This device is now the remote.`);
     if (tvGuideStatus) {
       tvGuideStatus.textContent = `${castDeviceName(session)} is connected through Wi-Fi and playing the selected movie.`;
@@ -389,7 +421,7 @@ function createApp({
   }
 
   function replaceGuideSteps(steps) {
-    if (!tvGuideSteps?.ownerDocument) {
+    if (!tvGuideSteps || !tvGuideSteps.ownerDocument) {
       return;
     }
 
@@ -432,10 +464,19 @@ function createApp({
         "Keep Chrome open on the phone while the TV plays.",
       ]);
       if (tvGuideStatus) {
-        const session = googleCastContext?.getCurrentSession?.();
+        const session = googleCastContext && hasMethod(googleCastContext, "getCurrentSession")
+          ? googleCastContext.getCurrentSession()
+          : null;
         if (session) {
           tvGuideStatus.textContent = `${castDeviceName(session)} is connected through Wi-Fi.`;
-        } else if (googleCastReady && castState() === windowRef?.cast?.framework?.CastState?.NO_DEVICES_AVAILABLE) {
+        } else if (
+          googleCastReady
+          && windowRef
+          && windowRef.cast
+          && windowRef.cast.framework
+          && windowRef.cast.framework.CastState
+          && castState() === windowRef.cast.framework.CastState.NO_DEVICES_AVAILABLE
+        ) {
           tvGuideStatus.textContent = "No Google Cast TVs were found. Confirm the TV and this device are on the same Wi-Fi and that the TV appears in Google Home.";
         } else if (googleCastReady) {
           tvGuideStatus.textContent = "Google Cast is ready. Tap Choose Google TV to see the friendly device names saved in Google Home.";
@@ -468,7 +509,9 @@ function createApp({
 
     if (googleCastReady && googleCastContext) {
       try {
-        let session = googleCastContext.getCurrentSession?.();
+        let session = hasMethod(googleCastContext, "getCurrentSession")
+          ? googleCastContext.getCurrentSession()
+          : null;
         if (!session) {
           updateStatus("Opening the Google Cast Wi-Fi device picker...");
           const errorCode = await googleCastContext.requestSession();
@@ -476,7 +519,9 @@ function createApp({
             updateStatus("Google Cast did not connect. Confirm the TV is on the same Wi-Fi and try again.");
             return;
           }
-          session = googleCastContext.getCurrentSession?.();
+          session = hasMethod(googleCastContext, "getCurrentSession")
+            ? googleCastContext.getCurrentSession()
+            : null;
         }
 
         if (!session) {
@@ -497,10 +542,14 @@ function createApp({
 
   function allowRemotePlayback() {
     player.disableRemotePlayback = false;
-    player.removeAttribute?.("disableremoteplayback");
-    player.removeAttribute?.("x-webkit-wirelessvideoplaybackdisabled");
-    player.setAttribute?.("x-webkit-airplay", "allow");
-    player.setAttribute?.("webkit-playsinline", "");
+    if (hasMethod(player, "removeAttribute")) {
+      player.removeAttribute("disableremoteplayback");
+      player.removeAttribute("x-webkit-wirelessvideoplaybackdisabled");
+    }
+    if (hasMethod(player, "setAttribute")) {
+      player.setAttribute("x-webkit-airplay", "allow");
+      player.setAttribute("webkit-playsinline", "");
+    }
     updateCastButton();
     updateTvGuide();
   }
@@ -531,7 +580,9 @@ function createApp({
 
   function markPermissionPanelDone() {
     try {
-      localStorageRef?.setItem(permissionStorageKey, "done");
+      if (localStorageRef && hasMethod(localStorageRef, "setItem")) {
+        localStorageRef.setItem(permissionStorageKey, "done");
+      }
     } catch {
       // Browsers can disable localStorage. The panel can still be dismissed for this page view.
     }
@@ -548,7 +599,7 @@ function createApp({
 
     let alreadyHandled = false;
     try {
-      alreadyHandled = localStorageRef?.getItem(permissionStorageKey) === "done";
+      alreadyHandled = Boolean(localStorageRef && hasMethod(localStorageRef, "getItem") && localStorageRef.getItem(permissionStorageKey) === "done");
     } catch {
       alreadyHandled = false;
     }
@@ -561,7 +612,7 @@ function createApp({
 
   function requestLocationPermission() {
     return new Promise((resolve) => {
-      if (!navigatorRef?.geolocation?.getCurrentPosition) {
+      if (!navigatorRef || !navigatorRef.geolocation || !hasMethod(navigatorRef.geolocation, "getCurrentPosition")) {
         resolve("Location is not available in this browser.");
         return;
       }
@@ -587,7 +638,7 @@ function createApp({
     const results = [];
     results.push("Cookies are allowed for this site session.");
     results.push(await requestLocationPermission());
-    if (navigatorRef?.wakeLock?.request) {
+    if (navigatorRef && navigatorRef.wakeLock && hasMethod(navigatorRef.wakeLock, "request")) {
       const wakeLockStarted = await requestWakeLock();
       results.push(wakeLockStarted ? "Screen wake permission is ready." : "Screen wake permission was not started yet.");
     } else {
@@ -632,7 +683,7 @@ function createApp({
       updateCastButton();
     }
     if (keepAwakeButton) {
-      keepAwakeButton.disabled = !authenticated || !navigatorRef?.wakeLock?.request;
+      keepAwakeButton.disabled = !authenticated || !navigatorRef || !navigatorRef.wakeLock || !hasMethod(navigatorRef.wakeLock, "request");
     }
     if (fullscreenButton) {
       fullscreenButton.disabled = !authenticated;
@@ -688,15 +739,15 @@ function createApp({
     }
 
     return {
-      movies: Array.isArray(payload?.movies) ? payload.movies : [],
-      folders: Array.isArray(payload?.folders) ? payload.folders : [],
+      movies: payload && Array.isArray(payload.movies) ? payload.movies : [],
+      folders: payload && Array.isArray(payload.folders) ? payload.folders : [],
     };
   }
 
   function buildFoldersFromMovies(movies, folders) {
     const folderMap = new Map();
     for (const folder of folders) {
-      if (!folder?.path) {
+      if (!folder || !folder.path) {
         continue;
       }
       folderMap.set(folder.path, {
@@ -900,7 +951,7 @@ function createApp({
         payload = null;
       }
 
-      throw new Error(payload?.error || fallbackMessage);
+      throw new Error((payload && payload.error) || fallbackMessage);
     }
 
     return response;
@@ -994,7 +1045,7 @@ function createApp({
       playback = await response.json();
     } catch (error) {
       const superseded = requestVersion !== playbackRequestVersion || movieSelect.value !== movieId;
-      if (superseded && error?.code !== "SESSION_EXPIRED") {
+      if (superseded && (!error || error.code !== "SESSION_EXPIRED")) {
         return false;
       }
       throw error;
@@ -1004,7 +1055,7 @@ function createApp({
       return false;
     }
 
-    if (resumeState?.movieId === movieId) {
+    if (resumeState && resumeState.movieId === movieId) {
       resumeAfterRefresh = resumeState;
       stableRefreshPosition = resumeState.position;
     }
@@ -1048,7 +1099,7 @@ function createApp({
         expectedMovieId: movieId,
         resumeState,
       });
-      if (!refreshed && resumeAfterRefresh?.movieId === movieId) {
+      if (!refreshed && resumeAfterRefresh && resumeAfterRefresh.movieId === movieId) {
         resumeAfterRefresh = null;
       }
       return refreshed;
@@ -1108,7 +1159,7 @@ function createApp({
 
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
-      const message = payload?.error || "Unable to verify the current session.";
+      const message = (payload && payload.error) || "Unable to verify the current session.";
       if (response.status === 503) {
         setAuthUnavailable(true);
         updateLoginStatus(message);
@@ -1154,7 +1205,7 @@ function createApp({
       if (response.status === 503) {
         setAuthUnavailable(true);
       }
-      announceLoginError(payload?.error || "Unable to sign in.");
+      announceLoginError((payload && payload.error) || "Unable to sign in.");
       setAuthenticated(false);
       passwordInput.select();
       return;
@@ -1304,7 +1355,7 @@ function createApp({
       updateTvGuide();
     });
 
-    if (documentRef?.addEventListener) {
+    if (documentRef && hasMethod(documentRef, "addEventListener")) {
       documentRef.addEventListener("visibilitychange", () => {
         if (documentRef.visibilityState === "visible" && keepAwakeWanted && !wakeLock && !player.paused) {
           requestWakeLock().catch(() => {});
@@ -1421,7 +1472,7 @@ function createApp({
 
     player.addEventListener("error", () => {
       clearStallRecovery();
-      const mediaErrorCode = player.error?.code;
+      const mediaErrorCode = player.error ? player.error.code : undefined;
       if (mediaErrorCode === 1) {
         return;
       }

@@ -103,6 +103,13 @@ test("exposes phone and TV playback controls", () => {
   assert.doesNotMatch(html, /disableremoteplayback/i);
 });
 
+test("ships a Safari-compatible browser script for older iPhones", () => {
+  const script = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
+
+  assert.doesNotMatch(script, /\?\./, "optional chaining can stop older Safari before the app starts");
+  assert.doesNotMatch(script, /\?\?/, "nullish coalescing can stop older Safari before the app starts");
+});
+
 test("configures Vercel media permissions for static pages", () => {
   const vercelConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "vercel.json"), "utf8"));
   const permissionsHeader = vercelConfig.headers
