@@ -239,6 +239,30 @@ test("fails closed on Vercel when durable session storage is not configured", as
   assert.equal(loginResponse.status, 503);
 });
 
+test("accepts Vercel Marketplace Upstash credentials as durable session storage", async (t) => {
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  const server = await startServer(createAuthOptions({
+    moviesDir,
+    publicDir,
+    env: {
+      MOVIE_PROVIDER: "local",
+      VERCEL: "1",
+      UPSTASH_REDIS_REST_URL: "https://redis.example",
+      UPSTASH_REDIS_REST_TOKEN: "upstash-token",
+    },
+  }));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const response = await fetch(`http://127.0.0.1:${port}/api/session`);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).authConfigured, true);
+});
+
 test("fails closed when the session signing secret is too short", async (t) => {
   const { root, moviesDir, publicDir } = createTempLibrary();
   const server = await startServer(createAuthOptions({

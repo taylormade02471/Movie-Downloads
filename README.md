@@ -31,7 +31,7 @@ Use this for Vercel hosting after you have:
 1. A Microsoft app registration with delegated read access for the target OneDrive account
 2. A refresh token for that app/account
 3. The target `driveId` and root folder `itemId`
-4. KV REST credentials so sessions, login throttling, and rotated refresh tokens persist across Vercel function instances
+4. Vercel Marketplace Upstash Redis credentials so sessions, login throttling, and rotated refresh tokens persist across Vercel function instances
 
 Copy `.env.example` to a local `.env` file or configure the same values in Vercel:
 
@@ -50,8 +50,8 @@ Copy `.env.example` to a local `.env` file or configure the same values in Verce
 - `ONEDRIVE_REFRESH_TOKEN`
 - `ONEDRIVE_DRIVE_ID`
 - `ONEDRIVE_ROOT_ITEM_ID`
-- `KV_REST_API_URL`
-- `KV_REST_API_TOKEN`
+- `UPSTASH_REDIS_REST_URL`
+- `UPSTASH_REDIS_REST_TOKEN`
 
 Set `ONEDRIVE_PUBLIC_CLIENT=true` only when your Microsoft app registration is configured as a public client and does not require a client secret for refresh-token exchange. `ONEDRIVE_REDIRECT_URI` is used to match the Microsoft app registration during refresh-token exchange; this app does not implement an in-repo OAuth callback flow yet.
 
@@ -78,7 +78,7 @@ Use Node.js 22.9 or newer. `npm start` loads a local `.env` file when one exists
 - No custom `vercel.json` routing is required for this layout: static assets stay at the site root and API requests go through `/api/*`
 - Set `APP_ORIGIN` to the exact deployed site origin for CSRF checks
 - `TRUST_PROXY=true` is an optional override for non-Vercel trusted-proxy deployments; Vercel is auto-detected
-- Configure both `KV_REST_API_URL` and `KV_REST_API_TOKEN`; Vercel authentication fails closed without durable shared storage
+- Configure both `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`; the legacy `KV_REST_API_URL` and `KV_REST_API_TOKEN` aliases also remain supported. Vercel authentication fails closed without durable shared storage
 - Protected API responses use `Cache-Control: private, no-store`
 - For production, configure the environment variables in Vercel before testing
 
@@ -95,6 +95,6 @@ This repository now includes the app-side OneDrive integration points, but the d
 - A randomly generated `SESSION_SECRET` of at least 32 UTF-8 bytes
 - A Microsoft app registration and refresh token
 - The correct `ONEDRIVE_DRIVE_ID` and `ONEDRIVE_ROOT_ITEM_ID`
-- KV REST credentials for required Vercel session/throttle/token storage
+- Upstash Redis REST credentials for required Vercel session/throttle/token storage
 
 If those values are missing, protected routes fail closed instead of allowing anonymous access.
