@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { createServer } = require("../server");
+const { createApp } = require("../public/app");
 
 function createTempLibrary() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "movie-room-"));
@@ -129,4 +130,36 @@ test("clamps oversized ranges and rejects traversal attempts", async (t) => {
   });
   assert.equal(invalidRangeResponse.status, 416);
   assert.equal(invalidRangeResponse.headers.get("content-range"), "bytes */10");
+});
+
+test("surfaces movie library load failures in the status message", async () => {
+  const movieSelect = {
+    value: "",
+    innerHTML: "",
+    addEventListener() {},
+    appendChild() {},
+  };
+  const reloadButton = { addEventListener() {} };
+  const player = {
+    currentSrc: "",
+    load() {},
+    addEventListener() {},
+    removeAttribute() {},
+  };
+  const status = { textContent: "" };
+
+  const app = createApp({
+    movieSelect,
+    reloadButton,
+    player,
+    status,
+    fetchImpl: async () => ({ ok: false }),
+    locationOrigin: "http://127.0.0.1:3000",
+    createOption: () => ({}),
+  });
+
+  app.initialize();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(status.textContent, "Unable to load movie library.");
 });

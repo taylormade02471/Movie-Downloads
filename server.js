@@ -252,6 +252,12 @@ function createServer(options = {}) {
         return;
       }
 
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        response.writeHead(405);
+        response.end();
+        return;
+      }
+
       const publicPath = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
       const filePath = path.resolve(publicDir, publicPath);
 
@@ -273,8 +279,11 @@ function createServer(options = {}) {
         throw error;
       }
 
-      response.writeHead(200, { "Content-Type": getContentType(filePath) });
-      response.end(fileContents);
+      response.writeHead(200, {
+        "Content-Type": getContentType(filePath),
+        "Content-Length": fileContents.length,
+      });
+      response.end(request.method === "HEAD" ? undefined : fileContents);
     } catch (error) {
       response.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
       response.end(JSON.stringify({ error: "Internal server error." }));
