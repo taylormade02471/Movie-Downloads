@@ -513,10 +513,6 @@ function createRequestHandler(options = {}) {
   return async function handleRequest(request, response) {
     try {
       const url = new URL(request.url, getOrigin(request));
-      if (url.pathname === "/api" && url.searchParams.has("pathname")) {
-        url.pathname = `/${url.searchParams.get("pathname").replace(/^\/+/, "")}`;
-        url.searchParams.delete("pathname");
-      }
 
       if (request.method === "POST" && url.pathname === "/api/login") {
         ensureSameOrigin(request, context.appOrigin);

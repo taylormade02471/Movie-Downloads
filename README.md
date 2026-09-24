@@ -45,12 +45,15 @@ Copy `.env.example` to a local `.env` file or configure the same values in Verce
 - `AUTH_RATE_LIMIT_MAX_ATTEMPTS`
 - `ONEDRIVE_CLIENT_ID`
 - `ONEDRIVE_CLIENT_SECRET`
+- `ONEDRIVE_PUBLIC_CLIENT`
 - `ONEDRIVE_REDIRECT_URI`
 - `ONEDRIVE_REFRESH_TOKEN`
 - `ONEDRIVE_DRIVE_ID`
 - `ONEDRIVE_ROOT_ITEM_ID`
 - `KV_REST_API_URL`
 - `KV_REST_API_TOKEN`
+
+Set `ONEDRIVE_PUBLIC_CLIENT=true` only when your Microsoft app registration is configured as a public client and does not require a client secret for refresh-token exchange.
 
 The app never exposes the shared password, session secret, or OneDrive credentials to the browser.
 
@@ -68,7 +71,8 @@ The app never exposes the shared password, session secret, or OneDrive credentia
 
 ## Vercel deployment
 
-- `vercel.json` rewrites all routes to the Node handler in `api/index.js`
+- Vercel serves the static UI from `public/`
+- The catch-all Node handler lives at `api/[...path].js`
 - Set `APP_ORIGIN` to the exact deployed site origin for CSRF checks
 - Set `TRUST_PROXY=true` on Vercel so auth throttling keys can use the platform-provided forwarded client IP
 - Protected API responses use `Cache-Control: private, no-store`
