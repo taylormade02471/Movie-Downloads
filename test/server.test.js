@@ -281,6 +281,181 @@ test("issues an opaque Cast ticket that streams without the browser session and 
   assert.equal(expiredResponse.status, 401);
 });
 
+test("pairs a Fire TV through a browser-approved one-time code", async (t) => {
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  const clock = { now: 1_000_000 };
+  const store = new MemoryStore(() => clock.now);
+  const server = await startServer(createAuthOptions({
+    moviesDir,
+    publicDir,
+    now: () => clock.now,
+    store,
+  }));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const origin = `http://127.0.0.1:${port}`;
+  const pollSecret = "poll-secret-from-tv";
+  const createResponse = await fetch(`${origin}/api/tv/pairings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      deviceLabel: "Living Room Fire TV",
+      pollSecret,
+    }),
+  });
+
+  assert.equal(createResponse.status, 201);
+  const created = await createResponse.json();
+  assert.match(created.pairingId, /^[A-Za-z0-9_-]{16,}$/);
+  assert.match(created.code, /^[A-Z0-9]{6}$/);
+  assert.equal(created.expiresAt, clock.now + 10 * 60 * 1000);
+  assert.equal(Object.hasOwn(created, "deviceToken"), false);
+
+  const pendingResponse = await fetch(`${origin}/api/tv/pairings/${created.pairingId}`, {
+    headers: { Authorization: `Bearer ${pollSecret}` },
+  });
+  assert.equal(pendingResponse.status, 200);
+  assert.deepEqual(await pendingResponse.json(), {
+    status: "pending",
+    expiresAt: created.expiresAt,
+  });
+
+  const authResponse = await login(port);
+  const cookie = authResponse.headers.get("set-cookie");
+  const approveResponse = await fetch(`${origin}/api/tv/pairings/approve`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: cookie,
+      Origin: origin,
+    },
+    body: JSON.stringify({ code: created.code }),
+  });
+
+  assert.equal(approveResponse.status, 200);
+  const approved = await approveResponse.json();
+  assert.equal(approved.status, "approved");
+  assert.match(approved.deviceLabel, /Living Room Fire TV/);
+
+  const tvApprovedResponse = await fetch(`${origin}/api/tv/pairings/${created.pairingId}`, {
+    headers: { Authorization: `Bearer ${pollSecret}` },
+  });
+  assert.equal(tvApprovedResponse.status, 200);
+  const tvApproved = await tvApprovedResponse.json();
+  assert.equal(tvApproved.status, "approved");
+  assert.match(tvApproved.deviceId, /^[A-Za-z0-9_-]{16,}$/);
+  assert.match(tvApproved.deviceToken, /^[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{32,}$/);
+
+  const secondPollResponse = await fetch(`${origin}/api/tv/pairings/${created.pairingId}`, {
+    headers: { Authorization: `Bearer ${pollSecret}` },
+  });
+  assert.equal(secondPollResponse.status, 200);
+  assert.deepEqual(await secondPollResponse.json(), {
+    status: "approved",
+    deviceId: tvApproved.deviceId,
+  });
+});
+
+test("rejects expired Fire TV pairings and wrong polling secrets", async (t) => {
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  const clock = { now: 2_000_000 };
+  const server = await startServer(createAuthOptions({
+    moviesDir,
+    publicDir,
+    now: () => clock.now,
+    store: new MemoryStore(() => clock.now),
+  }));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const origin = `http://127.0.0.1:${port}`;
+  const createResponse = await fetch(`${origin}/api/tv/pairings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      deviceLabel: "Bedroom Fire TV",
+      pollSecret: "correct-poll-secret",
+    }),
+  });
+  const created = await createResponse.json();
+
+  const wrongSecretResponse = await fetch(`${origin}/api/tv/pairings/${created.pairingId}`, {
+    headers: { Authorization: "Bearer wrong-poll-secret" },
+  });
+  assert.equal(wrongSecretResponse.status, 401);
+
+  clock.now += 10 * 60 * 1000 + 1;
+  const expiredPollResponse = await fetch(`${origin}/api/tv/pairings/${created.pairingId}`, {
+    headers: { Authorization: "Bearer correct-poll-secret" },
+  });
+  assert.equal(expiredPollResponse.status, 410);
+
+  const authResponse = await login(port);
+  const expiredApproveResponse = await fetch(`${origin}/api/tv/pairings/approve`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: authResponse.headers.get("set-cookie"),
+      Origin: origin,
+    },
+    body: JSON.stringify({ code: created.code }),
+  });
+  assert.equal(expiredApproveResponse.status, 410);
+});
+
+test("requires a signed-in same-origin browser to approve a Fire TV", async (t) => {
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  const server = await startServer(createAuthOptions({ moviesDir, publicDir }));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const origin = `http://127.0.0.1:${port}`;
+  const createResponse = await fetch(`${origin}/api/tv/pairings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      deviceLabel: "Family Room Fire TV",
+      pollSecret: "poll-secret",
+    }),
+  });
+  const created = await createResponse.json();
+
+  const anonymousResponse = await fetch(`${origin}/api/tv/pairings/approve`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: origin,
+    },
+    body: JSON.stringify({ code: created.code }),
+  });
+  assert.equal(anonymousResponse.status, 401);
+
+  const authResponse = await login(port);
+  const crossSiteResponse = await fetch(`${origin}/api/tv/pairings/approve`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: authResponse.headers.get("set-cookie"),
+      Origin: "https://evil.example",
+    },
+    body: JSON.stringify({ code: created.code }),
+  });
+  assert.equal(crossSiteResponse.status, 403);
+});
+
 test("redirects a valid Cast ticket to a fresh OneDrive playback URL", async (t) => {
   const { root, publicDir } = createTempLibrary();
   const provider = {

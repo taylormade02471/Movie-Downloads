@@ -20,8 +20,13 @@ const DEFAULT_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_MAX_ATTEMPTS = 5;
 const DEFAULT_CAST_PLAYBACK_TTL_MS = 6 * 60 * 60 * 1000;
+const DEFAULT_TV_PAIRING_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_TV_DEVICE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const SESSION_COOKIE_NAME = "movie_room_session";
 const CAST_TICKET_PREFIX = "cast-playback:";
+const TV_PAIRING_PREFIX = "tv-pairing:";
+const TV_CODE_PREFIX = "tv-code:";
+const TV_DEVICE_PREFIX = "tv-device:";
 
 class HttpError extends Error {
   constructor(statusCode, message, options = {}) {
@@ -156,6 +161,32 @@ function safeCompare(value, expected) {
   const left = crypto.createHash("sha256").update(value || "", "utf8").digest();
   const right = crypto.createHash("sha256").update(expected || "", "utf8").digest();
   return crypto.timingSafeEqual(left, right);
+}
+
+function normalizePairingCode(code) {
+  return String(code || "").replace(/[^a-z0-9]/gi, "").toUpperCase();
+}
+
+function generatePairingCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let index = 0; index < 6; index += 1) {
+    code += alphabet[crypto.randomInt(0, alphabet.length)];
+  }
+  return code;
+}
+
+function hashSecret(secret, sessionSecret) {
+  return crypto
+    .createHmac("sha256", sessionSecret)
+    .update(String(secret || ""))
+    .digest("base64url");
+}
+
+function readBearerToken(request) {
+  const header = request.headers.authorization || "";
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  return match ? match[1].trim() : "";
 }
 
 function getClientAddress(request, trustProxy = false) {
@@ -584,6 +615,204 @@ function createCastPlaybackManager(
   };
 }
 
+function parseStoredRecord(recordJson, missingStatus, missingMessage) {
+  if (!recordJson) {
+    throw new HttpError(missingStatus, missingMessage);
+  }
+
+  try {
+    return JSON.parse(recordJson);
+  } catch {
+    throw new HttpError(missingStatus, missingMessage);
+  }
+}
+
+function createTvDeviceManager(
+  store,
+  authConfig,
+  now = Date.now,
+  options = {},
+) {
+  const pairingTtlMs = options.pairingTtlMs || DEFAULT_TV_PAIRING_TTL_MS;
+  const deviceTtlMs = options.deviceTtlMs || DEFAULT_TV_DEVICE_TTL_MS;
+  const expiredPairingRetentionMs = options.expiredPairingRetentionMs || pairingTtlMs;
+
+  async function readPairing(pairingId) {
+    const normalizedPairingId = String(pairingId || "");
+    const record = parseStoredRecord(
+      await store.get(`${TV_PAIRING_PREFIX}${normalizedPairingId}`),
+      404,
+      "Fire TV pairing was not found.",
+    );
+
+    if (!record.expiresAt || record.expiresAt <= now()) {
+      throw new HttpError(410, "Fire TV pairing code expired.");
+    }
+
+    return { pairingId: normalizedPairingId, record };
+  }
+
+  async function writePairing(pairingId, record) {
+    await store.set(
+      `${TV_PAIRING_PREFIX}${pairingId}`,
+      JSON.stringify(record),
+      Math.max(1, record.expiresAt - now() + expiredPairingRetentionMs),
+    );
+  }
+
+  return {
+    async createPairing({ deviceLabel, pollSecret }) {
+      if (!pollSecret) {
+        throw new HttpError(400, "A polling secret is required.");
+      }
+
+      const createdAt = now();
+      const expiresAt = createdAt + pairingTtlMs;
+      const pairingId = crypto.randomBytes(18).toString("base64url");
+      const code = generatePairingCode();
+      const record = {
+        status: "pending",
+        code,
+        codeHash: hashSecret(code, authConfig.sessionSecret),
+        pollSecretHash: hashSecret(pollSecret, authConfig.sessionSecret),
+        deviceLabel: String(deviceLabel || "Fire TV").trim().slice(0, 80) || "Fire TV",
+        createdAt,
+        expiresAt,
+      };
+
+      await writePairing(pairingId, record);
+      await store.set(
+        `${TV_CODE_PREFIX}${code}`,
+        JSON.stringify({ pairingId }),
+        pairingTtlMs + expiredPairingRetentionMs,
+      );
+
+      return { pairingId, code, expiresAt };
+    },
+
+    async approvePairing({ code, sessionId }) {
+      const normalizedCode = normalizePairingCode(code);
+      if (!normalizedCode) {
+        throw new HttpError(400, "A Fire TV pairing code is required.");
+      }
+
+      const codeRecord = parseStoredRecord(
+        await store.get(`${TV_CODE_PREFIX}${normalizedCode}`),
+        404,
+        "Fire TV pairing code was not found.",
+      );
+      const { pairingId, record } = await readPairing(codeRecord.pairingId);
+
+      if (!safeCompare(record.codeHash, hashSecret(normalizedCode, authConfig.sessionSecret))) {
+        throw new HttpError(404, "Fire TV pairing code was not found.");
+      }
+      if (record.status !== "pending") {
+        throw new HttpError(409, "Fire TV pairing code was already used.");
+      }
+
+      const approvedAt = now();
+      const expiresAt = approvedAt + deviceTtlMs;
+      const deviceId = crypto.randomBytes(18).toString("base64url");
+      const rawSecret = crypto.randomBytes(32).toString("base64url");
+      const deviceToken = `${deviceId}.${rawSecret}`;
+
+      await store.set(
+        `${TV_DEVICE_PREFIX}${deviceId}`,
+        JSON.stringify({
+          tokenHash: hashSecret(rawSecret, authConfig.sessionSecret),
+          deviceLabel: record.deviceLabel,
+          createdAt: approvedAt,
+          expiresAt,
+          revokedAt: null,
+        }),
+        deviceTtlMs,
+      );
+
+      await writePairing(pairingId, {
+        ...record,
+        status: "approved",
+        deviceId,
+        oneTimeDeviceToken: deviceToken,
+        approvedAt,
+        approvedBy: sessionId,
+      });
+      await store.delete(`${TV_CODE_PREFIX}${normalizedCode}`);
+
+      return {
+        status: "approved",
+        deviceId,
+        deviceLabel: record.deviceLabel,
+        expiresAt,
+      };
+    },
+
+    async pollPairing({ pairingId, pollSecret }) {
+      const pairing = await readPairing(pairingId);
+      const { record } = pairing;
+      const pollSecretHash = hashSecret(pollSecret, authConfig.sessionSecret);
+      if (!safeCompare(record.pollSecretHash, pollSecretHash)) {
+        throw new HttpError(401, "Fire TV polling secret was not accepted.");
+      }
+
+      if (record.status === "pending") {
+        return { status: "pending", expiresAt: record.expiresAt };
+      }
+      if (record.status === "approved") {
+        if (record.oneTimeDeviceToken) {
+          const response = {
+            status: "approved",
+            deviceId: record.deviceId,
+            deviceToken: record.oneTimeDeviceToken,
+          };
+          const nextRecord = { ...record };
+          delete nextRecord.oneTimeDeviceToken;
+          await writePairing(pairing.pairingId, nextRecord);
+          return response;
+        }
+
+        return { status: "approved", deviceId: record.deviceId };
+      }
+
+      throw new HttpError(409, "Fire TV pairing was already resolved.");
+    },
+
+    async authenticateDevice(token) {
+      const separatorIndex = String(token || "").indexOf(".");
+      if (separatorIndex <= 0) {
+        throw new HttpError(401, "Fire TV device token is invalid.");
+      }
+
+      const deviceId = token.slice(0, separatorIndex);
+      const rawSecret = token.slice(separatorIndex + 1);
+      if (!deviceId || !rawSecret) {
+        throw new HttpError(401, "Fire TV device token is invalid.");
+      }
+
+      const record = parseStoredRecord(
+        await store.get(`${TV_DEVICE_PREFIX}${deviceId}`),
+        401,
+        "Fire TV device token is invalid or expired.",
+      );
+
+      if (
+        !record.expiresAt
+        || record.expiresAt <= now()
+        || record.revokedAt
+        || !safeCompare(record.tokenHash, hashSecret(rawSecret, authConfig.sessionSecret))
+      ) {
+        await store.delete(`${TV_DEVICE_PREFIX}${deviceId}`);
+        throw new HttpError(401, "Fire TV device token is invalid or expired.");
+      }
+
+      return {
+        deviceId,
+        expiresAt: record.expiresAt,
+        deviceLabel: record.deviceLabel,
+      };
+    },
+  };
+}
+
 function createProvider(options = {}) {
   if (options.provider) {
     return options.provider;
@@ -631,6 +860,10 @@ function createAppContext(options = {}) {
     now,
     castPlaybackTtlMs,
   );
+  const tvDeviceManager = createTvDeviceManager(store, authConfig, now, {
+    pairingTtlMs: options.tvPairingTtlMs,
+    deviceTtlMs: options.tvDeviceTtlMs,
+  });
 
   return {
     appOrigin,
@@ -641,6 +874,7 @@ function createAppContext(options = {}) {
     sessionManager: createSessionManager(store, authConfig, now, trustProxy, storageReady),
     rateLimiter: createRateLimiter(store, authConfig, now, trustProxy),
     trustProxy,
+    tvDeviceManager,
   };
 }
 
@@ -713,6 +947,38 @@ function createRequestHandler(options = {}) {
           provider: context.provider.kind,
           authConfigured: true,
         }, noStoreHeaders());
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/tv/pairings") {
+        const body = await readJsonBody(request, context.authConfig.bodyLimit);
+        const pairing = await context.tvDeviceManager.createPairing({
+          deviceLabel: typeof body.deviceLabel === "string" ? body.deviceLabel : "",
+          pollSecret: typeof body.pollSecret === "string" ? body.pollSecret : "",
+        });
+        await sendJson(response, 201, pairing, noStoreHeaders());
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/tv/pairings/approve") {
+        ensureSameOrigin(request, context.appOrigin, context.trustProxy);
+        const session = await context.sessionManager.get(request, true);
+        const body = await readJsonBody(request, context.authConfig.bodyLimit);
+        const approved = await context.tvDeviceManager.approvePairing({
+          code: typeof body.code === "string" ? body.code : "",
+          sessionId: session.sessionId,
+        });
+        await sendJson(response, 200, approved, noStoreHeaders());
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname.startsWith("/api/tv/pairings/")) {
+        const pairingId = decodeURIComponent(url.pathname.slice("/api/tv/pairings/".length));
+        const polled = await context.tvDeviceManager.pollPairing({
+          pairingId,
+          pollSecret: readBearerToken(request),
+        });
+        await sendJson(response, 200, polled, noStoreHeaders());
         return;
       }
 
