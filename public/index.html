@@ -482,13 +482,13 @@
       <div class="permission-card" role="dialog" aria-modal="true" aria-labelledby="permission-title">
         <h2 id="permission-title">Allow playback permissions</h2>
         <p>
-          This lets Movie Room keep you signed in, keep the screen awake, and ask Chrome or Safari for the phone
-          permissions they support for casting.
+          This lets Movie Room keep you signed in, keep the screen awake, and prepare Chrome or Safari for TV playback.
         </p>
         <ul class="permission-list">
           <li>Cookies stay enabled for the shared sign-in session.</li>
-          <li>Location and Bluetooth prompts can appear only after you tap allow.</li>
-          <li>Local network and TV discovery are handled by Chrome or Safari when you use Cast or AirPlay.</li>
+          <li>Location is optional and is not used to name or pair TVs.</li>
+          <li>Google Cast and AirPlay discover named TVs through the same Wi-Fi network.</li>
+          <li>Movie Room does not open a general Bluetooth device-pairing list.</li>
         </ul>
         <div class="permission-actions">
           <button id="enable-permissions" type="button">Allow permissions</button>
@@ -599,6 +599,12 @@
       </div>
     </main>
 
+    <script>
+      window.__movieRoomCastApiReady = new Promise((resolve) => {
+        window.__onGCastApiAvailable = (isAvailable) => resolve(Boolean(isAvailable));
+      });
+    </script>
+    <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1" async></script>
     <script src="/app.js" defer></script>
   </body>
 </html>

@@ -98,6 +98,8 @@ test("exposes phone and TV playback controls", () => {
   assert.match(html, /id="permission-panel"/);
   assert.match(html, /id="enable-permissions"/);
   assert.match(html, /id="skip-permissions"/);
+  assert.match(html, /cast_sender\.js\?loadCastFramework=1/);
+  assert.match(html, /__onGCastApiAvailable/);
   assert.doesNotMatch(html, /disableremoteplayback/i);
 });
 
@@ -108,7 +110,7 @@ test("configures Vercel media permissions for static pages", () => {
     .find((header) => header.key.toLowerCase() === "permissions-policy");
 
   assert.match(permissionsHeader.value, /screen-wake-lock=\(self\)/);
-  assert.match(permissionsHeader.value, /bluetooth=\(self\)/);
+  assert.doesNotMatch(permissionsHeader.value, /bluetooth=/);
   assert.match(permissionsHeader.value, /fullscreen=\(self\)/);
   assert.match(permissionsHeader.value, /local-network=\(self\)/);
   assert.match(permissionsHeader.value, /local-network-access=\(self\)/);
@@ -188,6 +190,133 @@ test("logs in, lists nested local movies, resolves playback, and logs out", asyn
     headers: { Cookie: sessionCookie },
   });
   assert.equal(afterLogoutResponse.status, 401);
+});
+
+test("issues an opaque Cast ticket that streams without the browser session and then expires", async (t) => {
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  fs.writeFileSync(path.join(moviesDir, "Cast-Night.mp4"), "0123456789");
+  const clock = { now: 10_000 };
+  const store = new MemoryStore(() => clock.now);
+  const castPlaybackTtlMs = 30_000;
+  const server = await startServer(createAuthOptions({
+    moviesDir,
+    publicDir,
+    store,
+    now: () => clock.now,
+    castPlaybackTtlMs,
+    auth: { sessionTtlMs: 60_000 },
+  }));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const origin = `http://127.0.0.1:${port}`;
+  const unsignedTicketResponse = await fetch(`${origin}/api/cast/playback`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: origin,
+    },
+    body: JSON.stringify({ movieId: "Cast-Night.mp4" }),
+  });
+  assert.equal(unsignedTicketResponse.status, 401);
+
+  const authResponse = await login(port);
+  const sessionCookie = authResponse.headers.get("set-cookie");
+
+  const crossSiteTicketResponse = await fetch(`${origin}/api/cast/playback`, {
+    method: "POST",
+    headers: {
+      Cookie: sessionCookie,
+      "Content-Type": "application/json",
+      Origin: "https://attacker.example",
+    },
+    body: JSON.stringify({ movieId: "Cast-Night.mp4" }),
+  });
+  assert.equal(crossSiteTicketResponse.status, 403);
+
+  const ticketResponse = await fetch(`${origin}/api/cast/playback`, {
+    method: "POST",
+    headers: {
+      Cookie: sessionCookie,
+      "Content-Type": "application/json",
+      Origin: origin,
+    },
+    body: JSON.stringify({ movieId: "Cast-Night.mp4" }),
+  });
+
+  assert.equal(ticketResponse.status, 200);
+  const ticket = await ticketResponse.json();
+  assert.equal(ticket.contentType, "video/mp4");
+  assert.equal(ticket.title, "Cast Night");
+  assert.equal(ticket.expiresAt, clock.now + castPlaybackTtlMs);
+  assert.match(ticket.url, new RegExp(`^${origin.replaceAll(".", "\\.")}/api/cast/stream\\?ticket=`));
+  assert.doesNotMatch(ticket.url, /Cast-Night|movie_room_session/);
+
+  const streamResponse = await fetch(ticket.url, {
+    headers: { Range: "bytes=2-5" },
+  });
+  assert.equal(streamResponse.status, 206);
+  assert.equal(streamResponse.headers.get("access-control-allow-origin"), "*");
+  assert.equal(streamResponse.headers.get("accept-ranges"), "bytes");
+  assert.equal(await streamResponse.text(), "2345");
+
+  const tamperedUrl = new URL(ticket.url);
+  tamperedUrl.searchParams.set("ticket", `${tamperedUrl.searchParams.get("ticket")}x`);
+  const tamperedResponse = await fetch(tamperedUrl);
+  assert.equal(tamperedResponse.status, 401);
+
+  clock.now += castPlaybackTtlMs + 1;
+  const expiredResponse = await fetch(ticket.url);
+  assert.equal(expiredResponse.status, 401);
+});
+
+test("redirects a valid Cast ticket to a fresh OneDrive playback URL", async (t) => {
+  const { root, publicDir } = createTempLibrary();
+  const provider = {
+    kind: "onedrive",
+    async listMovies() {
+      return [{
+        id: "onedrive-movie-id",
+        title: "Family Movie",
+        fileName: "Family-Movie.mp4",
+        folder: "Desktop Movie Downloads",
+        size: 1024,
+      }];
+    },
+    async resolvePlayback(movieId) {
+      assert.equal(movieId, "onedrive-movie-id");
+      return { url: "https://onedrive.example/fresh-download", expiresAt: null };
+    },
+  };
+  const server = await startServer(createAuthOptions({ publicDir, provider }));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const origin = `http://127.0.0.1:${port}`;
+  const authResponse = await login(port);
+  const ticketResponse = await fetch(`${origin}/api/cast/playback`, {
+    method: "POST",
+    headers: {
+      Cookie: authResponse.headers.get("set-cookie"),
+      "Content-Type": "application/json",
+      Origin: origin,
+    },
+    body: JSON.stringify({ movieId: "onedrive-movie-id" }),
+  });
+  const ticket = await ticketResponse.json();
+
+  const streamResponse = await fetch(ticket.url, { redirect: "manual" });
+  assert.equal(streamResponse.status, 307);
+  assert.equal(streamResponse.headers.get("location"), "https://onedrive.example/fresh-download");
+  assert.equal(streamResponse.headers.get("access-control-allow-origin"), "*");
 });
 
 test("returns folder previews including empty hidden local folders", async (t) => {
@@ -830,9 +959,6 @@ test("shows Chrome cast guidance when browser cast APIs are unavailable", async 
     status,
     bufferStatus: { textContent: "", style: { setProperty() {} } },
     loginStatus: { textContent: "" },
-    librarySummary: { textContent: "" },
-    folderShelf: { replaceChildren() {}, ownerDocument: { createElement: () => ({ addEventListener() {} }) } },
-    movieGrid: { replaceChildren() {}, ownerDocument: { createElement: () => ({ append() {}, addEventListener() {}, dataset: {} }) } },
     castButton,
     keepAwakeButton: { addEventListener() {} },
     fullscreenButton: { addEventListener() {} },
@@ -857,9 +983,225 @@ test("shows Chrome cast guidance when browser cast APIs are unavailable", async 
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.equal(player.disableRemotePlayback, false);
-  assert.equal(castButton.textContent, "Chrome Cast Help");
+  assert.equal(castButton.textContent, "Google Cast Help");
   listeners.click();
-  assert.match(status.textContent, /local network or Bluetooth access/i);
+  assert.match(status.textContent, /same Wi-Fi/i);
+  assert.doesNotMatch(status.textContent, /Bluetooth/i);
+});
+
+test("opens the Google Cast picker and loads a ticketed movie on the named TV", async () => {
+  const listeners = {};
+  const loadRequests = [];
+  let currentSession = null;
+  let requestSessionCalls = 0;
+  let pausedCalls = 0;
+  let castOptions = null;
+
+  class MediaInfo {
+    constructor(contentId, contentType) {
+      this.contentId = contentId;
+      this.contentType = contentType;
+      this.metadata = null;
+    }
+  }
+
+  class LoadRequest {
+    constructor(media) {
+      this.media = media;
+      this.autoplay = false;
+      this.currentTime = 0;
+    }
+  }
+
+  class GenericMediaMetadata {
+    constructor() {
+      this.title = "";
+      this.subtitle = "";
+    }
+  }
+
+  const castSession = {
+    getCastDevice() {
+      return { friendlyName: "Living Room TV" };
+    },
+    async loadMedia(request) {
+      loadRequests.push(request);
+    },
+  };
+  const castContext = {
+    addEventListener() {},
+    getCastState() {
+      return "NOT_CONNECTED";
+    },
+    getCurrentSession() {
+      return currentSession;
+    },
+    async requestSession() {
+      requestSessionCalls += 1;
+      currentSession = castSession;
+      return null;
+    },
+    setOptions(options) {
+      castOptions = options;
+    },
+  };
+  const windowRef = {
+    __movieRoomCastApiReady: Promise.resolve(true),
+    cast: {
+      framework: {
+        CastContext: { getInstance: () => castContext },
+        CastContextEventType: {
+          CAST_STATE_CHANGED: "CAST_STATE_CHANGED",
+          SESSION_STATE_CHANGED: "SESSION_STATE_CHANGED",
+        },
+        CastState: {
+          CONNECTED: "CONNECTED",
+          CONNECTING: "CONNECTING",
+          NO_DEVICES_AVAILABLE: "NO_DEVICES_AVAILABLE",
+          NOT_CONNECTED: "NOT_CONNECTED",
+        },
+      },
+    },
+    chrome: {
+      cast: {
+        AutoJoinPolicy: { ORIGIN_SCOPED: "ORIGIN_SCOPED" },
+        media: {
+          DEFAULT_MEDIA_RECEIVER_APP_ID: "CC1AD845",
+          GenericMediaMetadata,
+          LoadRequest,
+          MediaInfo,
+        },
+      },
+    },
+  };
+  const movieSelect = {
+    value: "",
+    innerHTML: "",
+    disabled: true,
+    addEventListener() {},
+    appendChild(option) {
+      if (!this.value) {
+        this.value = option.value;
+      }
+    },
+  };
+  const player = {
+    currentTime: 37,
+    disableRemotePlayback: true,
+    paused: false,
+    addEventListener() {},
+    load() {},
+    pause() {
+      pausedCalls += 1;
+    },
+    removeAttribute() {},
+    setAttribute() {},
+  };
+  const status = { textContent: "" };
+  const tvGuideTitle = { textContent: "iPhone to TV" };
+  const castButton = {
+    disabled: true,
+    textContent: "",
+    addEventListener(name, listener) {
+      listeners[`cast:${name}`] = listener;
+    },
+  };
+  const fetchRequests = [];
+
+  const app = createApp({
+    movieSelect,
+    reloadButton: { addEventListener() {} },
+    logoutButton: { addEventListener() {} },
+    searchInput: { disabled: false, addEventListener() {} },
+    passwordForm: { addEventListener() {} },
+    passwordInput: { disabled: false, removeAttribute() {}, setAttribute() {} },
+    submitButton: { disabled: false },
+    player,
+    status,
+    bufferStatus: { textContent: "", style: { setProperty() {} } },
+    loginStatus: { textContent: "" },
+    castButton,
+    tvGuideTitle,
+    tvGuideStatus: { textContent: "" },
+    keepAwakeButton: { addEventListener() {} },
+    fullscreenButton: { addEventListener() {} },
+    authPanel: { hidden: false },
+    libraryPanel: { hidden: true },
+    fetchImpl: async (url, options = {}) => {
+      fetchRequests.push({ url, options });
+      if (url === "/api/session") {
+        return { ok: true, status: 200, json: async () => ({ authenticated: true, authConfigured: true }) };
+      }
+      if (url === "/api/library") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            movies: [{
+              id: "movie-1",
+              title: "Family Movie",
+              fileName: "Family-Movie.mp4",
+              folder: "Family",
+              size: 1024,
+            }],
+            folders: [],
+          }),
+        };
+      }
+      if (url === "/api/playback") {
+        return { ok: true, status: 200, json: async () => ({ url: "/api/stream/Family-Movie.mp4" }) };
+      }
+      if (url === "/api/cast/playback") {
+        assert.equal(options.method, "POST");
+        assert.equal(options.body, JSON.stringify({ movieId: "movie-1" }));
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            url: "https://movie-downloads.example/api/cast/stream?ticket=opaque-signed-ticket",
+            contentType: "video/mp4",
+            title: "Family Movie",
+            expiresAt: Date.now() + 60_000,
+          }),
+        };
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    },
+    locationOrigin: "https://movie-downloads.example",
+    createOption: () => ({}),
+    documentRef: { addEventListener() {}, visibilityState: "visible" },
+    navigatorRef: {
+      userAgent: "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36",
+      vendor: "Google Inc.",
+    },
+    windowRef,
+  });
+
+  app.initialize();
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  assert.equal(castOptions.receiverApplicationId, "CC1AD845");
+  assert.equal(castOptions.autoJoinPolicy, "ORIGIN_SCOPED");
+  assert.equal(castButton.textContent, "Choose Google TV");
+  assert.equal(tvGuideTitle.textContent, "Google Cast to TV");
+
+  listeners["cast:click"]();
+  for (let index = 0; index < 3; index += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  assert.equal(requestSessionCalls, 1);
+  assert.equal(loadRequests.length, 1, status.textContent);
+  assert.equal(loadRequests[0].media.contentId, "https://movie-downloads.example/api/cast/stream?ticket=opaque-signed-ticket");
+  assert.equal(loadRequests[0].media.contentType, "video/mp4");
+  assert.equal(loadRequests[0].media.metadata.title, "Family Movie");
+  assert.equal(loadRequests[0].autoplay, true);
+  assert.equal(loadRequests[0].currentTime, 37);
+  assert.equal(pausedCalls, 1);
+  assert.match(status.textContent, /Living Room TV/);
+  assert.ok(fetchRequests.some((request) => request.url === "/api/cast/playback"));
 });
 
 test("shows iPhone AirPlay guidance and opens the Safari picker", async () => {
@@ -897,6 +1239,7 @@ test("shows iPhone AirPlay guidance and opens the Safari picker", async () => {
     },
   };
   const tvGuideStatus = { textContent: "" };
+  const tvGuideTitle = { textContent: "" };
 
   const app = createApp({
     movieSelect: { value: "", addEventListener() {} },
@@ -914,6 +1257,7 @@ test("shows iPhone AirPlay guidance and opens the Safari picker", async () => {
     folderShelf: { replaceChildren() {}, ownerDocument: { createElement: () => ({ addEventListener() {} }) } },
     movieGrid: { replaceChildren() {}, ownerDocument: { createElement: () => ({ append() {}, addEventListener() {}, dataset: {} }) } },
     castButton,
+    tvGuideTitle,
     tvGuideSteps,
     tvGuideStatus,
     keepAwakeButton: { addEventListener() {} },
@@ -942,6 +1286,7 @@ test("shows iPhone AirPlay guidance and opens the Safari picker", async () => {
 
   assert.equal(player.disableRemotePlayback, false);
   assert.equal(castButton.textContent, "Safari AirPlay");
+  assert.equal(tvGuideTitle.textContent, "iPhone to TV");
   assert.match(tvGuideStatus.textContent, /AirPlay is available/i);
   assert.match(guideSteps.join(" "), /same Wi-Fi/i);
   listeners.click();
@@ -955,6 +1300,7 @@ test("shows a first-run permission setup panel and saves the choice", async () =
   let locationRequests = 0;
   let bluetoothRequests = 0;
   const permissionPanel = { hidden: true };
+  const permissionStatus = { textContent: "" };
   const enablePermissionsButton = {
     disabled: false,
     addEventListener(name, listener) {
@@ -987,7 +1333,7 @@ test("shows a first-run permission setup panel and saves the choice", async () =
     permissionPanel,
     enablePermissionsButton,
     skipPermissionsButton: { addEventListener() {} },
-    permissionStatus: { textContent: "" },
+    permissionStatus,
     castButton: { addEventListener() {} },
     keepAwakeButton: { addEventListener() {} },
     fullscreenButton: { addEventListener() {} },
@@ -1037,7 +1383,9 @@ test("shows a first-run permission setup panel and saves the choice", async () =
 
   assert.equal(permissionPanel.hidden, true);
   assert.equal(locationRequests, 1);
-  assert.equal(bluetoothRequests, 1);
+  assert.equal(bluetoothRequests, 0);
+  assert.match(permissionStatus.textContent, /Wi-Fi/i);
+  assert.doesNotMatch(permissionStatus.textContent, /Bluetooth/i);
   assert.equal(localStorageValues.get("movie_room_permissions_v1"), "done");
 });
 

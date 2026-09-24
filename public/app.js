@@ -18,6 +18,7 @@ function createApp({
   skipPermissionsButton,
   permissionStatus,
   castButton,
+  tvGuideTitle,
   tvGuideSteps,
   tvGuideStatus,
   keepAwakeButton,
@@ -29,6 +30,7 @@ function createApp({
   createOption,
   documentRef = typeof document !== "undefined" ? document : null,
   navigatorRef = typeof navigator !== "undefined" ? navigator : null,
+  windowRef = typeof window !== "undefined" ? window : null,
   localStorageRef = typeof localStorage !== "undefined" ? localStorage : null,
   mediaMetadataCtor = typeof MediaMetadata !== "undefined" ? MediaMetadata : null,
   setTimeoutImpl = (callback, delay) => setTimeout(callback, delay),
@@ -51,6 +53,9 @@ function createApp({
   let wakeLock = null;
   let keepAwakeWanted = true;
   let safariAirPlayAvailable = false;
+  let googleCastContext = null;
+  let googleCastReady = false;
+  let authenticated = false;
   const expectedLibraryCount = 16;
   const permissionStorageKey = "movie_room_permissions_v1";
 
@@ -227,14 +232,14 @@ function createApp({
       return;
     }
 
-    castButton.disabled = false;
+    castButton.disabled = !authenticated;
     if (safariAirPlayAvailable || player.webkitShowPlaybackTargetPicker) {
       castButton.textContent = "Safari AirPlay";
       return;
     }
 
-    if (player.remote?.prompt) {
-      castButton.textContent = "Chrome Cast";
+    if (googleCastReady) {
+      castButton.textContent = "Choose Google TV";
       return;
     }
 
@@ -258,7 +263,7 @@ function createApp({
       return "Safari AirPlay Help";
     }
     if (info.isChromium || info.isAndroid) {
-      return "Chrome Cast Help";
+      return "Google Cast Help";
     }
     return "TV Cast Help";
   }
@@ -269,9 +274,118 @@ function createApp({
       return "iPhone TV playback uses Safari AirPlay: keep the iPhone and Apple TV or AirPlay TV on the same Wi-Fi, start the movie, then tap Safari AirPlay or the AirPlay icon in the video controls. Keep Safari open while the TV plays.";
     }
     if (info.isChromium || info.isAndroid) {
-      return "Android TV playback uses Chrome Cast when Chrome exposes it: keep the phone and TV or Chromecast on the same Wi-Fi, start the movie, open Chrome's Cast option, allow local network or Bluetooth access if Chrome asks, then pick the TV. Keep Chrome open as the controller.";
+      return "Google Cast uses Wi-Fi: keep this device and the Chromecast, Google TV, or Cast-enabled TV on the same Wi-Fi, start the movie, tap Google Cast, then choose the TV by its Google Home name.";
     }
-    return "Start the movie, then use your browser's Cast, AirPlay, or screen-mirroring option. Allow local network or Bluetooth access if the browser asks. The page keeps the video loaded here so your browser can hand it to the TV.";
+    return "Start the movie, then use your browser's Cast, AirPlay, or screen-mirroring option. TV discovery happens through the same Wi-Fi network.";
+  }
+
+  function castDeviceName(session = googleCastContext?.getCurrentSession?.()) {
+    const friendlyName = session?.getCastDevice?.()?.friendlyName;
+    return typeof friendlyName === "string" && friendlyName.trim()
+      ? friendlyName.trim()
+      : "Google TV";
+  }
+
+  function castState() {
+    return googleCastContext?.getCastState?.() || "";
+  }
+
+  async function initializeGoogleCast() {
+    const info = browserInfo();
+    if (info.isIOS || info.isSafari || !info.isChromium) {
+      return false;
+    }
+
+    const castAvailable = await windowRef?.__movieRoomCastApiReady;
+    const castFramework = windowRef?.cast?.framework;
+    const chromeCast = windowRef?.chrome?.cast;
+    if (
+      !castAvailable
+      || !castFramework?.CastContext?.getInstance
+      || !chromeCast?.media?.DEFAULT_MEDIA_RECEIVER_APP_ID
+    ) {
+      updateCastButton();
+      updateTvGuide();
+      return false;
+    }
+
+    googleCastContext = castFramework.CastContext.getInstance();
+    googleCastContext.setOptions({
+      receiverApplicationId: chromeCast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+      autoJoinPolicy: chromeCast.AutoJoinPolicy?.ORIGIN_SCOPED,
+    });
+    googleCastReady = true;
+
+    const castStateChanged = castFramework.CastContextEventType?.CAST_STATE_CHANGED;
+    if (castStateChanged) {
+      googleCastContext.addEventListener(castStateChanged, () => {
+        updateCastButton();
+        updateTvGuide();
+      });
+    }
+
+    const sessionStateChanged = castFramework.CastContextEventType?.SESSION_STATE_CHANGED;
+    if (sessionStateChanged) {
+      googleCastContext.addEventListener(sessionStateChanged, () => {
+        updateCastButton();
+        updateTvGuide();
+      });
+    }
+
+    updateCastButton();
+    updateTvGuide();
+    return true;
+  }
+
+  async function requestCastPlayback(movieId) {
+    const response = await handleApiResponse(
+      await fetchImpl("/api/cast/playback", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ movieId }),
+      }),
+      "Unable to prepare this movie for Google Cast.",
+    );
+    return response.json();
+  }
+
+  async function loadSelectedMovieOnCast(session) {
+    const movie = selectedMovie();
+    if (!movie) {
+      updateStatus("Select a movie before choosing a TV.");
+      return false;
+    }
+
+    updateStatus(`Preparing ${movie.title || "this movie"} for ${castDeviceName(session)}...`);
+    const playback = await requestCastPlayback(movie.id);
+    const mediaApi = windowRef?.chrome?.cast?.media;
+    if (!mediaApi?.MediaInfo || !mediaApi?.LoadRequest) {
+      throw new Error("Google Cast became unavailable. Reload Chrome and try again.");
+    }
+
+    const mediaInfo = new mediaApi.MediaInfo(playback.url, playback.contentType || "video/mp4");
+    if (mediaApi.GenericMediaMetadata) {
+      const metadata = new mediaApi.GenericMediaMetadata();
+      metadata.title = playback.title || movie.title || movie.fileName || "Movie Room";
+      metadata.subtitle = movie.folder || "Movie Room";
+      mediaInfo.metadata = metadata;
+    }
+
+    const request = new mediaApi.LoadRequest(mediaInfo);
+    request.autoplay = true;
+    request.currentTime = Number.isFinite(player.currentTime)
+      ? Math.max(0, player.currentTime)
+      : 0;
+    await session.loadMedia(request);
+    player.pause?.();
+    updateStatus(`Playing on ${castDeviceName(session)}. This device is now the remote.`);
+    if (tvGuideStatus) {
+      tvGuideStatus.textContent = `${castDeviceName(session)} is connected through Wi-Fi and playing the selected movie.`;
+    }
+    return true;
   }
 
   function replaceGuideSteps(steps) {
@@ -290,6 +404,9 @@ function createApp({
   function updateTvGuide() {
     const info = browserInfo();
     if (info.isSafari || info.isIOS) {
+      if (tvGuideTitle) {
+        tvGuideTitle.textContent = "iPhone to TV";
+      }
       replaceGuideSteps([
         "Connect the iPhone and Apple TV or AirPlay TV to the same Wi-Fi network.",
         "Open this page in Safari, sign in, and start the movie.",
@@ -305,20 +422,33 @@ function createApp({
     }
 
     if (info.isChromium || info.isAndroid) {
+      if (tvGuideTitle) {
+        tvGuideTitle.textContent = "Google Cast to TV";
+      }
       replaceGuideSteps([
         "Connect the Android phone and Chromecast, Google TV, or Cast-capable TV to the same Wi-Fi network.",
         "Open this page in Chrome, sign in, and start the movie.",
-        "Tap Chrome Cast above if available, or open Chrome's menu and choose Cast.",
+        "Tap Choose Google TV to open Google's Wi-Fi device picker and select the TV by its Google Home name.",
         "Keep Chrome open on the phone while the TV plays.",
       ]);
       if (tvGuideStatus) {
-        tvGuideStatus.textContent = player.remote?.prompt
-          ? "Chrome Cast is available from this player. Tap Chrome Cast after the movie starts."
-          : "If Chrome does not show Cast, use Chrome's menu, the Android quick settings Cast tile, or a TV with Chromecast support on the same Wi-Fi.";
+        const session = googleCastContext?.getCurrentSession?.();
+        if (session) {
+          tvGuideStatus.textContent = `${castDeviceName(session)} is connected through Wi-Fi.`;
+        } else if (googleCastReady && castState() === windowRef?.cast?.framework?.CastState?.NO_DEVICES_AVAILABLE) {
+          tvGuideStatus.textContent = "No Google Cast TVs were found. Confirm the TV and this device are on the same Wi-Fi and that the TV appears in Google Home.";
+        } else if (googleCastReady) {
+          tvGuideStatus.textContent = "Google Cast is ready. Tap Choose Google TV to see the friendly device names saved in Google Home.";
+        } else {
+          tvGuideStatus.textContent = "Google Cast is loading in Chrome. TV discovery uses Wi-Fi, not Bluetooth pairing.";
+        }
       }
       return;
     }
 
+    if (tvGuideTitle) {
+      tvGuideTitle.textContent = "Phone to TV";
+    }
     if (tvGuideStatus) {
       tvGuideStatus.textContent = browserCastInstructions();
     }
@@ -336,13 +466,28 @@ function createApp({
       }
     }
 
-    if (player.remote?.prompt) {
+    if (googleCastReady && googleCastContext) {
       try {
-        await player.remote.prompt();
-        updateStatus("Choose your TV in the browser prompt, then keep this browser open as the controller.");
+        let session = googleCastContext.getCurrentSession?.();
+        if (!session) {
+          updateStatus("Opening the Google Cast Wi-Fi device picker...");
+          const errorCode = await googleCastContext.requestSession();
+          if (errorCode) {
+            updateStatus("Google Cast did not connect. Confirm the TV is on the same Wi-Fi and try again.");
+            return;
+          }
+          session = googleCastContext.getCurrentSession?.();
+        }
+
+        if (!session) {
+          updateStatus("No Google Cast TV was selected.");
+          return;
+        }
+
+        await loadSelectedMovieOnCast(session);
         return;
       } catch {
-        updateStatus("TV playback was not started. Use the browser's Cast or AirPlay icon if your phone shows one.");
+        updateStatus("Google Cast was canceled or could not connect. Confirm both devices are on the same Wi-Fi.");
         return;
       }
     }
@@ -433,19 +578,6 @@ function createApp({
     });
   }
 
-  async function requestBluetoothPermission() {
-    if (!navigatorRef?.bluetooth?.requestDevice) {
-      return "Bluetooth permission is not available in this browser.";
-    }
-
-    try {
-      await navigatorRef.bluetooth.requestDevice({ acceptAllDevices: true });
-      return "Bluetooth permission was allowed.";
-    } catch {
-      return "Bluetooth permission was skipped, canceled, or no device was selected.";
-    }
-  }
-
   async function requestFirstRunPermissions() {
     if (enablePermissionsButton) {
       enablePermissionsButton.disabled = true;
@@ -455,14 +587,13 @@ function createApp({
     const results = [];
     results.push("Cookies are allowed for this site session.");
     results.push(await requestLocationPermission());
-    results.push(await requestBluetoothPermission());
     if (navigatorRef?.wakeLock?.request) {
       const wakeLockStarted = await requestWakeLock();
       results.push(wakeLockStarted ? "Screen wake permission is ready." : "Screen wake permission was not started yet.");
     } else {
       results.push("Screen wake permission is not available in this browser.");
     }
-    results.push("Chrome/Safari local network permission appears when you use Cast or AirPlay.");
+    results.push("TV discovery uses the Wi-Fi picker shown by Google Cast or Safari AirPlay.");
 
     updatePermissionStatus(results.join(" "));
     markPermissionPanelDone();
@@ -484,7 +615,8 @@ function createApp({
     passwordInput.removeAttribute("aria-invalid");
   }
 
-  function setAuthenticated(authenticated) {
+  function setAuthenticated(isAuthenticated) {
+    authenticated = Boolean(isAuthenticated);
     authPanel.hidden = authenticated;
     libraryPanel.hidden = !authenticated;
     if (searchInput) {
@@ -497,7 +629,7 @@ function createApp({
       logoutButton.disabled = !authenticated;
     }
     if (castButton) {
-      castButton.disabled = !authenticated;
+      updateCastButton();
     }
     if (keepAwakeButton) {
       keepAwakeButton.disabled = !authenticated || !navigatorRef?.wakeLock?.request;
@@ -1166,22 +1298,6 @@ function createApp({
       });
     }
 
-    if (player.remote?.addEventListener) {
-      player.remote.addEventListener("connecting", () => {
-        updateStatus("Connecting to the TV...");
-      });
-      player.remote.addEventListener("connect", () => {
-        updateStatus("Playing on the TV. Keep this browser open as the controller.");
-        if (tvGuideStatus) {
-          tvGuideStatus.textContent = "Connected to TV playback. Keep this browser open on the phone.";
-        }
-      });
-      player.remote.addEventListener("disconnect", () => {
-        updateStatus("TV playback disconnected. Playback is still available on this page.");
-        updateTvGuide();
-      });
-    }
-
     player.addEventListener("webkitplaybacktargetavailabilitychanged", (event) => {
       safariAirPlayAvailable = event.availability === "available";
       updateCastButton();
@@ -1202,6 +1318,11 @@ function createApp({
     updateTvGuide();
     updateBufferStatus();
     showPermissionPanelIfNeeded();
+    initializeGoogleCast().catch(() => {
+      googleCastReady = false;
+      updateCastButton();
+      updateTvGuide();
+    });
 
     player.addEventListener("waiting", () => {
       scheduleStallRecovery("Loading more video while keeping your place…");
@@ -1369,6 +1490,7 @@ if (typeof document !== "undefined") {
     skipPermissionsButton: document.getElementById("skip-permissions"),
     permissionStatus: document.getElementById("permission-status"),
     castButton: document.getElementById("cast-tv"),
+    tvGuideTitle: document.getElementById("tv-guide-title"),
     tvGuideSteps: document.getElementById("tv-guide-steps"),
     tvGuideStatus: document.getElementById("tv-guide-status"),
     keepAwakeButton: document.getElementById("keep-awake"),

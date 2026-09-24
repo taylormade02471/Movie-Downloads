@@ -9,6 +9,7 @@ const { R_OK } = fs.constants;
 const {
   getContentType,
   isStreamableExtension,
+  movieTitleFromName,
 } = require("./lib/media");
 const { createLocalProvider } = require("./lib/providers/local");
 const { createOneDriveProvider } = require("./lib/providers/onedrive");
@@ -18,7 +19,9 @@ const DEFAULT_BODY_LIMIT = 8 * 1024;
 const DEFAULT_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_MAX_ATTEMPTS = 5;
+const DEFAULT_CAST_PLAYBACK_TTL_MS = 6 * 60 * 60 * 1000;
 const SESSION_COOKIE_NAME = "movie_room_session";
+const CAST_TICKET_PREFIX = "cast-playback:";
 
 class HttpError extends Error {
   constructor(statusCode, message, options = {}) {
@@ -45,7 +48,18 @@ function noStoreHeaders(extraHeaders = {}) {
 
 function mediaFeatureHeaders(extraHeaders = {}) {
   return {
-    "Permissions-Policy": "autoplay=(self), bluetooth=(self), fullscreen=(self), local-network=(self), local-network-access=(self), loopback-network=(self), picture-in-picture=(self), presentation=(self), screen-wake-lock=(self)",
+    "Permissions-Policy": "autoplay=(self), fullscreen=(self), geolocation=(self), local-network=(self), local-network-access=(self), loopback-network=(self), picture-in-picture=(self), presentation=(self), screen-wake-lock=(self)",
+    ...extraHeaders,
+  };
+}
+
+function castMediaHeaders(extraHeaders = {}) {
+  return {
+    "Access-Control-Allow-Headers": "Range",
+    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Expose-Headers": "Accept-Ranges, Content-Length, Content-Range, Content-Type",
+    "Cross-Origin-Resource-Policy": "cross-origin",
     ...extraHeaders,
   };
 }
@@ -234,7 +248,7 @@ async function ensureReadableFile(filePath) {
   await fsp.access(filePath, R_OK);
 }
 
-function getStreamHeaders(filePath, size, range) {
+function getStreamHeaders(filePath, size, range, extraHeaders = {}) {
   const contentType = getContentType(filePath);
 
   if (!range) {
@@ -244,7 +258,7 @@ function getStreamHeaders(filePath, size, range) {
         "Content-Length": size,
         "Content-Type": contentType,
         "Accept-Ranges": "bytes",
-        ...noStoreHeaders(),
+        ...noStoreHeaders(extraHeaders),
       },
     };
   }
@@ -255,7 +269,7 @@ function getStreamHeaders(filePath, size, range) {
       statusCode: 416,
       headers: {
         "Content-Range": `bytes */${size}`,
-        ...noStoreHeaders(),
+        ...noStoreHeaders(extraHeaders),
       },
     };
   }
@@ -270,7 +284,7 @@ function getStreamHeaders(filePath, size, range) {
         statusCode: 416,
         headers: {
           "Content-Range": `bytes */${size}`,
-          ...noStoreHeaders(),
+          ...noStoreHeaders(extraHeaders),
         },
       };
     }
@@ -293,7 +307,7 @@ function getStreamHeaders(filePath, size, range) {
       statusCode: 416,
       headers: {
         "Content-Range": `bytes */${size}`,
-        ...noStoreHeaders(),
+        ...noStoreHeaders(extraHeaders),
       },
     };
   }
@@ -307,15 +321,15 @@ function getStreamHeaders(filePath, size, range) {
       "Content-Length": end - start + 1,
       "Content-Type": contentType,
       "Accept-Ranges": "bytes",
-      ...noStoreHeaders(),
+      ...noStoreHeaders(extraHeaders),
     },
     start,
     end,
   };
 }
 
-function streamFile(request, response, filePath, size) {
-  const streamResponse = getStreamHeaders(filePath, size, request.headers.range);
+function streamFile(request, response, filePath, size, extraHeaders = {}) {
+  const streamResponse = getStreamHeaders(filePath, size, request.headers.range, extraHeaders);
   response.writeHead(streamResponse.statusCode, streamResponse.headers);
 
   if (streamResponse.statusCode !== 206) {
@@ -489,6 +503,87 @@ function createRateLimiter(store, authConfig, now = Date.now, trustProxy = false
   };
 }
 
+function createCastPlaybackManager(
+  store,
+  authConfig,
+  provider,
+  now = Date.now,
+  ticketTtlMs = DEFAULT_CAST_PLAYBACK_TTL_MS,
+) {
+  return {
+    async create(movieId, sessionExpiresAt) {
+      const movies = await provider.listMovies();
+      const movie = movies.find((entry) => entry.id === movieId);
+
+      if (!movie) {
+        throw new HttpError(404, "The movie is not in the configured movie folder.");
+      }
+      if ((Number(movie.size) || 0) <= 0) {
+        throw new HttpError(409, "This movie is still uploading.");
+      }
+
+      const mediaName = movie.fileName || movie.id;
+      if (!isStreamableExtension(mediaName)) {
+        throw new HttpError(415, "Unsupported movie format.");
+      }
+
+      const issuedAt = now();
+      const expiresAt = Math.min(issuedAt + ticketTtlMs, sessionExpiresAt);
+      const ticketId = crypto.randomBytes(32).toString("base64url");
+      const record = {
+        expiresAt,
+        movieId,
+        provider: provider.kind,
+      };
+
+      await store.set(
+        `${CAST_TICKET_PREFIX}${ticketId}`,
+        JSON.stringify(record),
+        Math.max(1, expiresAt - issuedAt),
+      );
+
+      return {
+        contentType: getContentType(mediaName),
+        expiresAt,
+        ticket: encodeSignedValue(ticketId, authConfig.sessionSecret),
+        title: movie.title || movieTitleFromName(mediaName),
+      };
+    },
+
+    async get(ticket) {
+      const ticketId = decodeSignedValue(ticket || "", authConfig.sessionSecret);
+      if (!ticketId) {
+        throw new HttpError(401, "This Cast playback link is invalid or expired.");
+      }
+
+      const recordJson = await store.get(`${CAST_TICKET_PREFIX}${ticketId}`);
+      if (!recordJson) {
+        throw new HttpError(401, "This Cast playback link is invalid or expired.");
+      }
+
+      let record;
+      try {
+        record = JSON.parse(recordJson);
+      } catch {
+        await store.delete(`${CAST_TICKET_PREFIX}${ticketId}`);
+        throw new HttpError(401, "This Cast playback link is invalid or expired.");
+      }
+
+      if (
+        !record.movieId
+        || record.provider !== provider.kind
+        || !record.expiresAt
+        || record.expiresAt <= now()
+      ) {
+        await store.delete(`${CAST_TICKET_PREFIX}${ticketId}`);
+        throw new HttpError(401, "This Cast playback link is invalid or expired.");
+      }
+
+      return record;
+    },
+  };
+}
+
 function createProvider(options = {}) {
   if (options.provider) {
     return options.provider;
@@ -527,10 +622,20 @@ function createAppContext(options = {}) {
     || (env.VERCEL_URL ? `https://${env.VERCEL_URL}` : "");
   const trustProxy = options.trustProxy ?? (env.TRUST_PROXY === "true" || Boolean(env.VERCEL));
   const storageReady = !env.VERCEL || store.durable === true;
+  const castPlaybackTtlMs = options.castPlaybackTtlMs
+    ?? parseNumber(env.CAST_PLAYBACK_TTL_MS, DEFAULT_CAST_PLAYBACK_TTL_MS);
+  const castPlaybackManager = createCastPlaybackManager(
+    store,
+    authConfig,
+    provider,
+    now,
+    castPlaybackTtlMs,
+  );
 
   return {
     appOrigin,
     authConfig,
+    castPlaybackManager,
     provider,
     publicDir: path.resolve(options.publicDir || path.join(__dirname, "public")),
     sessionManager: createSessionManager(store, authConfig, now, trustProxy, storageReady),
@@ -642,6 +747,31 @@ function createRequestHandler(options = {}) {
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/cast/playback") {
+        ensureSameOrigin(request, context.appOrigin, context.trustProxy);
+        const session = await context.sessionManager.get(request, true);
+        const body = await readJsonBody(request, context.authConfig.bodyLimit);
+        const movieId = typeof body.movieId === "string" ? body.movieId : "";
+
+        if (!movieId) {
+          throw new HttpError(400, "A movie id is required.");
+        }
+
+        const castPlayback = await context.castPlaybackManager.create(movieId, session.expiresAt);
+        const ticketUrl = new URL(
+          "/api/cast/stream",
+          context.appOrigin || getOrigin(request, context.trustProxy),
+        );
+        ticketUrl.searchParams.set("ticket", castPlayback.ticket);
+        await sendJson(response, 200, {
+          url: ticketUrl.toString(),
+          contentType: castPlayback.contentType,
+          title: castPlayback.title,
+          expiresAt: castPlayback.expiresAt,
+        }, noStoreHeaders());
+        return;
+      }
+
       if (request.method === "GET" && url.pathname.startsWith("/api/playback/")) {
         await context.sessionManager.get(request, true);
         let movieId = "";
@@ -659,6 +789,71 @@ function createRequestHandler(options = {}) {
 
         const playback = await context.provider.resolvePlayback(movieId);
         await sendJson(response, 200, playback, noStoreHeaders());
+        return;
+      }
+
+      if (request.method === "OPTIONS" && url.pathname === "/api/cast/stream") {
+        sendEmpty(response, 204, noStoreHeaders(castMediaHeaders()));
+        return;
+      }
+
+      if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/api/cast/stream") {
+        const corsHeaders = castMediaHeaders();
+        for (const [name, value] of Object.entries(corsHeaders)) {
+          response.setHeader(name, value);
+        }
+
+        const castPlayback = await context.castPlaybackManager.get(url.searchParams.get("ticket"));
+
+        if (context.provider.kind !== "local") {
+          const playback = await context.provider.resolvePlayback(castPlayback.movieId);
+          if (!playback?.url || !playback.url.startsWith("https://")) {
+            throw new HttpError(502, "The movie provider did not return a secure playback link.");
+          }
+
+          response.writeHead(307, noStoreHeaders(castMediaHeaders({
+            Location: playback.url,
+          })));
+          response.end();
+          return;
+        }
+
+        const filePath = context.provider.resolveMoviePath(castPlayback.movieId);
+        if (!filePath || !isWithinDirectory(context.provider.moviesDir, filePath)) {
+          throw new HttpError(400, "Invalid movie path.");
+        }
+        if (!isStreamableExtension(filePath)) {
+          throw new HttpError(415, "Unsupported movie format.");
+        }
+
+        let stats;
+        try {
+          stats = await fsp.stat(filePath);
+        } catch (error) {
+          if (error.code === "ENOENT") {
+            throw new HttpError(404, "Movie not found.");
+          }
+          throw error;
+        }
+
+        if (!stats.isFile()) {
+          throw new HttpError(404, "Movie not found.");
+        }
+
+        await ensureReadableFile(filePath);
+        if (request.method === "HEAD") {
+          const streamResponse = getStreamHeaders(
+            filePath,
+            stats.size,
+            request.headers.range,
+            corsHeaders,
+          );
+          response.writeHead(streamResponse.statusCode, streamResponse.headers);
+          response.end();
+          return;
+        }
+
+        streamFile(request, response, filePath, stats.size, corsHeaders);
         return;
       }
 

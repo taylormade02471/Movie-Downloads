@@ -7,6 +7,9 @@ A lightweight browser app for browsing and streaming a shared movie library behi
 - Password-protected catalog access with signed HttpOnly sessions
 - Recursive movie discovery for local files and OneDrive-backed libraries
 - Server-issued playback links so the browser can stream directly from the configured provider
+- Google Cast device selection on Android and desktop Chrome using Google Home device names
+- Opaque, time-limited Cast playback tickets so TVs never receive the browser session cookie
+- Safari AirPlay support remains available for iPhone and iPad
 - Vercel-compatible request handling with durable KV-backed sessions, throttling, and token persistence
 
 ## Supported providers
@@ -41,6 +44,7 @@ Copy `.env.example` to a local `.env` file or configure the same values in Verce
 - `MOVIE_PASSWORD`
 - `SESSION_SECRET`
 - `SESSION_TTL_MS`
+- `CAST_PLAYBACK_TTL_MS` (optional; defaults to six hours and is capped by the signed-in session)
 - `AUTH_RATE_LIMIT_WINDOW_MS`
 - `AUTH_RATE_LIMIT_MAX_ATTEMPTS`
 - `ONEDRIVE_CLIENT_ID`
@@ -56,6 +60,7 @@ Copy `.env.example` to a local `.env` file or configure the same values in Verce
 Set `ONEDRIVE_PUBLIC_CLIENT=true` only when your Microsoft app registration is configured as a public client and does not require a client secret for refresh-token exchange. `ONEDRIVE_REDIRECT_URI` is used to match the Microsoft app registration during refresh-token exchange; this app does not implement an in-repo OAuth callback flow yet.
 
 The app never exposes the shared password, session secret, or OneDrive credentials to the browser.
+The first-run permissions button does not open a broad Bluetooth chooser. Google Cast and AirPlay discover TVs over the local Wi-Fi network. Cast playback tickets are stored in the configured durable KV store and contain no movie name or login cookie.
 
 ## Getting started
 

@@ -5,7 +5,7 @@
       "headers": [
         {
           "key": "Permissions-Policy",
-          "value": "autoplay=(self), bluetooth=(self), fullscreen=(self), local-network=(self), local-network-access=(self), loopback-network=(self), picture-in-picture=(self), presentation=(self), screen-wake-lock=(self)"
+          "value": "autoplay=(self), fullscreen=(self), geolocation=(self), local-network=(self), local-network-access=(self), loopback-network=(self), picture-in-picture=(self), presentation=(self), screen-wake-lock=(self)"
         }
       ]
     }
