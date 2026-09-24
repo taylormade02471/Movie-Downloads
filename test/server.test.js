@@ -776,6 +776,57 @@ test("recursively lists OneDrive items and resolves fresh playback links", async
   assert.equal(requests[0].options.body.get("scope"), "offline_access Files.Read");
 });
 
+test("uses the OneDrive content redirect when a file response omits its download URL", async () => {
+  const provider = createOneDriveProvider({
+    env: {
+      ONEDRIVE_CLIENT_ID: "client-id",
+      ONEDRIVE_CLIENT_SECRET: "client-secret",
+      ONEDRIVE_REDIRECT_URI: "http://localhost/callback",
+      ONEDRIVE_REFRESH_TOKEN: "refresh-token",
+      ONEDRIVE_DRIVE_ID: "drive-id",
+      ONEDRIVE_ROOT_ITEM_ID: "root-item",
+    },
+    store: new MemoryStore(),
+    fetchImpl: async (url) => {
+      const requestUrl = String(url);
+
+      if (requestUrl.includes("/oauth2/v2.0/token")) {
+        return {
+          ok: true,
+          json: async () => ({ access_token: "access-token", expires_in: 3600 }),
+        };
+      }
+
+      if (requestUrl.includes("/root-item/children")) {
+        return {
+          ok: true,
+          json: async () => ({
+            value: [{ id: "movie-1", name: "Movie-One.mp4", file: {} }],
+          }),
+        };
+      }
+
+      if (requestUrl.includes("/items/movie-1/content")) {
+        return {
+          status: 302,
+          headers: new Headers({ Location: "https://download.example/movie-one" }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ id: "movie-1", name: "Movie-One.mp4", file: {} }),
+      };
+    },
+  });
+
+  const playback = await provider.resolvePlayback("movie-1");
+  assert.deepEqual(playback, {
+    url: "https://download.example/movie-one",
+    expiresAt: null,
+  });
+});
+
 test("surfaces a OneDrive token refresh failure", async () => {
   const provider = createOneDriveProvider({
     env: {
