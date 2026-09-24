@@ -1,8 +1,14 @@
 function createApp({
   movieSelect,
   reloadButton,
+  logoutButton,
+  passwordForm,
+  passwordInput,
   player,
   status,
+  loginStatus,
+  authPanel,
+  libraryPanel,
   fetchImpl,
   locationOrigin,
   createOption,
@@ -11,18 +17,50 @@ function createApp({
     status.textContent = message;
   }
 
-  function movieLabel(movie) {
-    const sizeInGb = (movie.size / (1024 ** 3)).toFixed(2);
-    return `${movie.title} (${sizeInGb} GB)`;
+  function updateLoginStatus(message) {
+    loginStatus.textContent = message;
   }
 
-  async function loadLibrary(selectedStreamPath = movieSelect.value) {
+  function setAuthenticated(authenticated) {
+    authPanel.hidden = authenticated;
+    libraryPanel.hidden = !authenticated;
+  }
+
+  function movieLabel(movie) {
+    const sizeInGb = (movie.size / (1024 ** 3)).toFixed(2);
+    const folderLabel = movie.folder ? ` — ${movie.folder}` : "";
+    return `${movie.title}${folderLabel} (${sizeInGb} GB)`;
+  }
+
+  async function handleApiResponse(response, fallbackMessage) {
+    if (response.status === 401) {
+      setAuthenticated(false);
+      player.removeAttribute("src");
+      player.load();
+      throw new Error("Your session expired. Sign in again to keep watching.");
+    }
+
+    if (!response.ok) {
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch {
+        payload = null;
+      }
+
+      throw new Error(payload?.error || fallbackMessage);
+    }
+
+    return response;
+  }
+
+  async function loadLibrary(selectedMovieId = movieSelect.value) {
     updateStatus("Loading library…");
 
-    const response = await fetchImpl("/api/movies");
-    if (!response.ok) {
-      throw new Error("Unable to load movie library.");
-    }
+    const response = await handleApiResponse(
+      await fetchImpl("/api/movies", { credentials: "same-origin" }),
+      "Unable to load movie library.",
+    );
 
     const movies = await response.json();
     movieSelect.innerHTML = "";
@@ -30,54 +68,146 @@ function createApp({
     if (!movies.length) {
       player.removeAttribute("src");
       player.load();
-      updateStatus("No movies found yet. Add video files to the movies folder.");
+      updateStatus("No movies found yet. Add supported video files to the active movie provider.");
       return [];
     }
 
     for (const movie of movies) {
       const option = createOption();
-      option.value = movie.streamPath;
+      option.value = movie.id;
       option.textContent = movieLabel(movie);
       movieSelect.appendChild(option);
     }
 
-    const availablePaths = new Set(movies.map((movie) => movie.streamPath));
-    if (selectedStreamPath && availablePaths.has(selectedStreamPath)) {
-      movieSelect.value = selectedStreamPath;
+    const availableIds = new Set(movies.map((movie) => movie.id));
+    if (selectedMovieId && availableIds.has(selectedMovieId)) {
+      movieSelect.value = selectedMovieId;
     }
 
     updateStatus("Library ready. Select a movie to start streaming.");
     return movies;
   }
 
-  function playSelectedMovie() {
-    const streamPath = movieSelect.value;
-    if (!streamPath || !streamPath.startsWith("/api/stream/")) {
-      updateStatus("Invalid movie stream path.");
+  async function playSelectedMovie() {
+    const movieId = movieSelect.value;
+    if (!movieId) {
+      updateStatus("Select a movie to start streaming.");
       return;
     }
 
-    player.src = new URL(streamPath, locationOrigin).toString();
+    updateStatus("Requesting a secure playback link…");
+    const response = await handleApiResponse(
+      await fetchImpl(`/api/playback/${encodeURIComponent(movieId)}`, {
+        credentials: "same-origin",
+      }),
+      "Unable to start playback.",
+    );
+    const playback = await response.json();
+
+    player.src = new URL(playback.url, locationOrigin).toString();
     player.load();
     updateStatus("Connecting to stream and buffering playback…");
   }
 
+  async function loadSession() {
+    const response = await fetchImpl("/api/session", { credentials: "same-origin" });
+    if (response.status === 401) {
+      setAuthenticated(false);
+      updateStatus("Sign in to browse the movie library.");
+      return false;
+    }
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      updateStatus(payload?.error || "Unable to verify the current session.");
+      return false;
+    }
+
+    const session = await response.json();
+    setAuthenticated(session.authenticated);
+    if (!session.authenticated) {
+      updateStatus("Sign in to browse the movie library.");
+      return false;
+    }
+
+    return true;
+  }
+
+  async function handleLogin(event) {
+    event.preventDefault();
+    updateLoginStatus("Signing in…");
+
+    const response = await fetchImpl("/api/login", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ password: passwordInput.value }),
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      updateLoginStatus(payload?.error || "Unable to sign in.");
+      passwordInput.select();
+      return;
+    }
+
+    passwordInput.value = "";
+    updateLoginStatus("");
+    setAuthenticated(true);
+    const movies = await loadLibrary();
+    if (movies.length) {
+      await playSelectedMovie();
+    }
+  }
+
+  async function handleLogout() {
+    await fetchImpl("/api/logout", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+    });
+
+    setAuthenticated(false);
+    player.removeAttribute("src");
+    player.load();
+    movieSelect.innerHTML = "";
+    updateStatus("Signed out.");
+  }
+
   function initialize() {
-    movieSelect.addEventListener("change", playSelectedMovie);
+    movieSelect.addEventListener("change", () => {
+      playSelectedMovie().catch((error) => {
+        updateStatus(error.message);
+      });
+    });
+
     reloadButton.addEventListener("click", async () => {
       try {
         const previousSelection = movieSelect.value;
         const movies = await loadLibrary(previousSelection);
-        const selectedStreamUrl = movieSelect.value
-          ? new URL(movieSelect.value, locationOrigin).toString()
-          : "";
-
-        if (movies.length && (!selectedStreamUrl || player.currentSrc !== selectedStreamUrl)) {
-          playSelectedMovie();
+        if (movies.length) {
+          await playSelectedMovie();
         }
       } catch (error) {
         updateStatus(error.message);
       }
+    });
+
+    logoutButton.addEventListener("click", () => {
+      handleLogout().catch((error) => {
+        updateStatus(error.message);
+      });
+    });
+
+    passwordForm.addEventListener("submit", (event) => {
+      handleLogin(event).catch((error) => {
+        updateLoginStatus(error.message);
+      });
     });
 
     player.addEventListener("waiting", () => {
@@ -100,10 +230,15 @@ function createApp({
       updateStatus("This movie could not be played in the browser.");
     });
 
-    loadLibrary()
-      .then((movies) => {
+    loadSession()
+      .then(async (authenticated) => {
+        if (!authenticated) {
+          return;
+        }
+
+        const movies = await loadLibrary();
         if (movies.length) {
-          playSelectedMovie();
+          await playSelectedMovie();
         }
       })
       .catch((error) => {
@@ -112,10 +247,14 @@ function createApp({
   }
 
   return {
+    handleLogin,
+    handleLogout,
     initialize,
     loadLibrary,
+    loadSession,
     movieLabel,
     playSelectedMovie,
+    setAuthenticated,
     updateStatus,
   };
 }
@@ -124,8 +263,14 @@ if (typeof document !== "undefined") {
   createApp({
     movieSelect: document.getElementById("movie-select"),
     reloadButton: document.getElementById("reload"),
+    logoutButton: document.getElementById("logout"),
+    passwordForm: document.getElementById("password-form"),
+    passwordInput: document.getElementById("password"),
     player: document.getElementById("player"),
     status: document.getElementById("status"),
+    loginStatus: document.getElementById("login-status"),
+    authPanel: document.getElementById("auth-panel"),
+    libraryPanel: document.getElementById("library-panel"),
     fetchImpl: fetch,
     locationOrigin: window.location.origin,
     createOption: () => document.createElement("option"),

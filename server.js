@@ -1,35 +1,32 @@
-const http = require("http");
-const fs = require("fs");
-const path = require("path");
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const http = require("node:http");
+const path = require("node:path");
 
 const { createReadStream, promises: fsp } = fs;
 const { R_OK } = fs.constants;
 
-const STREAMABLE_EXTENSIONS = new Set([
-  ".mp4",
-  ".m4v",
-  ".mov",
-  ".webm",
-  ".ogg",
-  ".ogv",
-  ".mkv",
-]);
+const {
+  getContentType,
+  isStreamableExtension,
+} = require("./lib/media");
+const { createLocalProvider } = require("./lib/providers/local");
+const { createOneDriveProvider } = require("./lib/providers/onedrive");
+const { createKeyValueStore } = require("./lib/store");
 
-const CONTENT_TYPES = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".mp4": "video/mp4",
-  ".m4v": "video/x-m4v",
-  ".mov": "video/quicktime",
-  ".webm": "video/webm",
-  ".ogg": "video/ogg",
-  ".ogv": "video/ogg",
-  ".mkv": "video/x-matroska",
-};
+const DEFAULT_BODY_LIMIT = 8 * 1024;
+const DEFAULT_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const DEFAULT_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const DEFAULT_RATE_LIMIT_MAX_ATTEMPTS = 5;
+const SESSION_COOKIE_NAME = "movie_room_session";
 
-function getContentType(filePath) {
-  return CONTENT_TYPES[path.extname(filePath).toLowerCase()] || "application/octet-stream";
+class HttpError extends Error {
+  constructor(statusCode, message, options = {}) {
+    super(message);
+    this.statusCode = statusCode;
+    this.headers = options.headers || {};
+    this.payload = options.payload || { error: message };
+  }
 }
 
 function isWithinDirectory(parentDir, targetPath) {
@@ -37,70 +34,182 @@ function isWithinDirectory(parentDir, targetPath) {
   return (relative === "" || !relative.startsWith("..")) && !path.isAbsolute(relative);
 }
 
-async function listMovies(moviesDir) {
-  let entries = [];
+function noStoreHeaders(extraHeaders = {}) {
+  return {
+    "Cache-Control": "private, no-store, max-age=0",
+    Pragma: "no-cache",
+    ...extraHeaders,
+  };
+}
 
-  try {
-    entries = await fsp.readdir(moviesDir, { withFileTypes: true });
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      await fsp.mkdir(moviesDir, { recursive: true });
-      return [];
-    }
-    throw error;
-  }
+function getOrigin(request) {
+  const protocol = (request.headers["x-forwarded-proto"] || "").split(",")[0].trim()
+    || (request.socket.encrypted ? "https" : "http");
+  return `${protocol}://${request.headers.host || "localhost"}`;
+}
 
-  const movies = [];
-  for (const entry of entries) {
-    if (!entry.isFile()) {
+function isSecureRequest(request) {
+  const forwardedProtocol = (request.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  return forwardedProtocol === "https" || Boolean(request.socket.encrypted);
+}
+
+function parseNumber(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseCookies(header = "") {
+  const cookies = {};
+  for (const part of header.split(";")) {
+    const index = part.indexOf("=");
+    if (index === -1) {
       continue;
     }
 
-    const extension = path.extname(entry.name).toLowerCase();
-    if (!STREAMABLE_EXTENSIONS.has(extension)) {
-      continue;
+    const name = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    if (name) {
+      cookies[name] = value;
     }
-
-    const fullPath = path.join(moviesDir, entry.name);
-    const stats = await fsp.stat(fullPath);
-
-    movies.push({
-      title: path.parse(entry.name).name.replaceAll(/[_-]+/g, " "),
-      filename: entry.name,
-      size: stats.size,
-      streamPath: `/api/stream/${encodeURIComponent(entry.name)}`,
-    });
   }
 
-  movies.sort((a, b) => a.title.localeCompare(b.title));
-  return movies;
+  return cookies;
 }
 
-function resolveMoviePath(moviesDir, encodedFileName) {
-  let fileName = "";
-
-  try {
-    fileName = decodeURIComponent(encodedFileName || "");
-  } catch {
-    return null;
+function serializeCookie(name, value, options = {}) {
+  const parts = [`${name}=${value}`];
+  if (options.path) {
+    parts.push(`Path=${options.path}`);
   }
-
-  if (fileName !== path.basename(fileName)) {
-    return null;
+  if (typeof options.maxAge === "number") {
+    parts.push(`Max-Age=${options.maxAge}`);
   }
-
-  const fullPath = path.resolve(moviesDir, fileName);
-
-  if (!isWithinDirectory(moviesDir, fullPath)) {
-    return null;
+  if (options.httpOnly) {
+    parts.push("HttpOnly");
   }
-
-  return fullPath;
+  if (options.sameSite) {
+    parts.push(`SameSite=${options.sameSite}`);
+  }
+  if (options.secure) {
+    parts.push("Secure");
+  }
+  if (options.expires) {
+    parts.push(`Expires=${options.expires.toUTCString()}`);
+  }
+  return parts.join("; ");
 }
 
-async function sendJson(response, statusCode, payload) {
-  response.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
+function signValue(value, secret) {
+  return crypto.createHmac("sha256", secret).update(value).digest("base64url");
+}
+
+function encodeSignedValue(value, secret) {
+  return `${value}.${signValue(value, secret)}`;
+}
+
+function decodeSignedValue(value, secret) {
+  const separatorIndex = value.lastIndexOf(".");
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const rawValue = value.slice(0, separatorIndex);
+  const signature = value.slice(separatorIndex + 1);
+  const expected = signValue(rawValue, secret);
+  const providedBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+
+  if (providedBuffer.length !== expectedBuffer.length) {
+    return null;
+  }
+
+  return crypto.timingSafeEqual(providedBuffer, expectedBuffer) ? rawValue : null;
+}
+
+function safeCompare(value, expected) {
+  const left = Buffer.from(value || "", "utf8");
+  const right = Buffer.from(expected || "", "utf8");
+  if (left.length !== right.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(left, right);
+}
+
+function getClientAddress(request) {
+  const forwarded = request.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.length) {
+    return forwarded.split(",")[0].trim();
+  }
+  return request.socket.remoteAddress || "unknown";
+}
+
+async function sendJson(response, statusCode, payload, headers = {}) {
+  response.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    ...headers,
+  });
   response.end(JSON.stringify(payload));
+}
+
+function sendEmpty(response, statusCode, headers = {}) {
+  response.writeHead(statusCode, headers);
+  response.end();
+}
+
+async function readJsonBody(request, limit = DEFAULT_BODY_LIMIT) {
+  const chunks = [];
+  let size = 0;
+
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > limit) {
+      throw new HttpError(413, "Request body is too large.");
+    }
+    chunks.push(chunk);
+  }
+
+  if (!chunks.length) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new HttpError(400, "Request body must be valid JSON.");
+  }
+}
+
+function ensureSameOrigin(request) {
+  const origin = request.headers.origin;
+  if (origin && origin !== getOrigin(request)) {
+    throw new HttpError(403, "Cross-site requests are not allowed.");
+  }
+
+  const site = request.headers["sec-fetch-site"];
+  if (site && !["same-origin", "same-site", "none"].includes(site)) {
+    throw new HttpError(403, "Cross-site requests are not allowed.");
+  }
+}
+
+function buildSessionCookie(token, maxAgeSeconds, secure) {
+  return serializeCookie(SESSION_COOKIE_NAME, token, {
+    path: "/",
+    maxAge: maxAgeSeconds,
+    httpOnly: true,
+    sameSite: "Lax",
+    secure,
+  });
+}
+
+function buildClearedSessionCookie(secure) {
+  return serializeCookie(SESSION_COOKIE_NAME, "", {
+    path: "/",
+    maxAge: 0,
+    expires: new Date(0),
+    httpOnly: true,
+    sameSite: "Lax",
+    secure,
+  });
 }
 
 async function ensureReadableFile(filePath) {
@@ -117,7 +226,7 @@ function getStreamHeaders(filePath, size, range) {
         "Content-Length": size,
         "Content-Type": contentType,
         "Accept-Ranges": "bytes",
-        "Cache-Control": "no-store",
+        ...noStoreHeaders(),
       },
     };
   }
@@ -126,7 +235,10 @@ function getStreamHeaders(filePath, size, range) {
   if (!match) {
     return {
       statusCode: 416,
-      headers: { "Content-Range": `bytes */${size}` },
+      headers: {
+        "Content-Range": `bytes */${size}`,
+        ...noStoreHeaders(),
+      },
     };
   }
 
@@ -138,7 +250,10 @@ function getStreamHeaders(filePath, size, range) {
     if (Number.isNaN(suffixLength) || suffixLength <= 0) {
       return {
         statusCode: 416,
-        headers: { "Content-Range": `bytes */${size}` },
+        headers: {
+          "Content-Range": `bytes */${size}`,
+          ...noStoreHeaders(),
+        },
       };
     }
 
@@ -150,15 +265,18 @@ function getStreamHeaders(filePath, size, range) {
   }
 
   if (
-    Number.isNaN(start) ||
-    Number.isNaN(end) ||
-    start < 0 ||
-    end < start ||
-    start >= size
+    Number.isNaN(start)
+    || Number.isNaN(end)
+    || start < 0
+    || end < start
+    || start >= size
   ) {
     return {
       statusCode: 416,
-      headers: { "Content-Range": `bytes */${size}` },
+      headers: {
+        "Content-Range": `bytes */${size}`,
+        ...noStoreHeaders(),
+      },
     };
   }
 
@@ -171,7 +289,7 @@ function getStreamHeaders(filePath, size, range) {
       "Content-Length": end - start + 1,
       "Content-Type": contentType,
       "Accept-Ranges": "bytes",
-      "Cache-Control": "no-store",
+      ...noStoreHeaders(),
     },
     start,
     end,
@@ -202,32 +320,269 @@ function streamFile(request, response, filePath, size) {
     .pipe(response);
 }
 
-function createServer(options = {}) {
-  const moviesDir = path.resolve(options.moviesDir || path.join(__dirname, "movies"));
-  const publicDir = path.resolve(options.publicDir || path.join(__dirname, "public"));
+function buildAuthConfig(options = {}) {
+  const env = options.env || process.env;
+  return {
+    password: options.password ?? env.MOVIE_PASSWORD ?? "",
+    sessionSecret: options.sessionSecret ?? env.SESSION_SECRET ?? "",
+    sessionTtlMs: options.sessionTtlMs ?? parseNumber(env.SESSION_TTL_MS, DEFAULT_SESSION_TTL_MS),
+    bodyLimit: options.bodyLimit ?? parseNumber(env.AUTH_BODY_LIMIT_BYTES, DEFAULT_BODY_LIMIT),
+    rateLimitWindowMs: options.rateLimitWindowMs
+      ?? parseNumber(env.AUTH_RATE_LIMIT_WINDOW_MS, DEFAULT_RATE_LIMIT_WINDOW_MS),
+    rateLimitMaxAttempts: options.rateLimitMaxAttempts
+      ?? parseNumber(env.AUTH_RATE_LIMIT_MAX_ATTEMPTS, DEFAULT_RATE_LIMIT_MAX_ATTEMPTS),
+  };
+}
 
-  return http.createServer(async (request, response) => {
+function createSessionManager(store, authConfig, now = Date.now) {
+  const prefix = "session:";
+  const ttlSeconds = Math.ceil(authConfig.sessionTtlMs / 1000);
+
+  return {
+    isConfigured() {
+      return Boolean(authConfig.password && authConfig.sessionSecret);
+    },
+    async create(secure) {
+      const sessionId = crypto.randomBytes(24).toString("base64url");
+      const expiresAt = now() + authConfig.sessionTtlMs;
+      await store.set(`${prefix}${sessionId}`, JSON.stringify({ expiresAt }), authConfig.sessionTtlMs);
+      return buildSessionCookie(
+        encodeSignedValue(sessionId, authConfig.sessionSecret),
+        ttlSeconds,
+        secure,
+      );
+    },
+    async get(request, required = true) {
+      if (!this.isConfigured()) {
+        throw new HttpError(503, "Authentication is not configured.");
+      }
+
+      const cookies = parseCookies(request.headers.cookie);
+      const rawCookie = cookies[SESSION_COOKIE_NAME];
+      if (!rawCookie) {
+        if (!required) {
+          return null;
+        }
+
+        throw new HttpError(401, "Sign in is required.", {
+          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request)) },
+        });
+      }
+
+      const sessionId = decodeSignedValue(rawCookie, authConfig.sessionSecret);
+      if (!sessionId) {
+        throw new HttpError(401, "Session is invalid.", {
+          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request)) },
+        });
+      }
+
+      const sessionJson = await store.get(`${prefix}${sessionId}`);
+      if (!sessionJson) {
+        throw new HttpError(401, "Session expired.", {
+          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request)) },
+        });
+      }
+
+      let session;
+      try {
+        session = JSON.parse(sessionJson);
+      } catch {
+        await store.delete(`${prefix}${sessionId}`);
+        throw new HttpError(401, "Session expired.", {
+          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request)) },
+        });
+      }
+
+      if (!session.expiresAt || session.expiresAt <= now()) {
+        await store.delete(`${prefix}${sessionId}`);
+        throw new HttpError(401, "Session expired.", {
+          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request)) },
+        });
+      }
+
+      return { sessionId, expiresAt: session.expiresAt };
+    },
+    async destroy(request) {
+      const cookies = parseCookies(request.headers.cookie);
+      const rawCookie = cookies[SESSION_COOKIE_NAME];
+      const secure = isSecureRequest(request);
+
+      if (!rawCookie) {
+        return buildClearedSessionCookie(secure);
+      }
+
+      const sessionId = decodeSignedValue(rawCookie, authConfig.sessionSecret);
+      if (sessionId) {
+        await store.delete(`${prefix}${sessionId}`);
+      }
+
+      return buildClearedSessionCookie(secure);
+    },
+  };
+}
+
+function createRateLimiter(store, authConfig, now = Date.now) {
+  const prefix = "login-attempts:";
+
+  return {
+    async assertCanAttempt(request) {
+      const key = `${prefix}${getClientAddress(request)}`;
+      const stateJson = await store.get(key);
+      const state = stateJson ? JSON.parse(stateJson) : null;
+
+      if (!state || state.windowStartedAt + authConfig.rateLimitWindowMs <= now()) {
+        return;
+      }
+
+      if (state.count >= authConfig.rateLimitMaxAttempts) {
+        throw new HttpError(429, "Too many failed sign-in attempts. Please try again later.");
+      }
+    },
+    async recordFailure(request) {
+      const key = `${prefix}${getClientAddress(request)}`;
+      const stateJson = await store.get(key);
+      const currentTime = now();
+      let state = stateJson ? JSON.parse(stateJson) : null;
+
+      if (!state || state.windowStartedAt + authConfig.rateLimitWindowMs <= currentTime) {
+        state = { count: 0, windowStartedAt: currentTime };
+      }
+
+      state.count += 1;
+      await store.set(key, JSON.stringify(state), authConfig.rateLimitWindowMs);
+    },
+    async clear(request) {
+      await store.delete(`${prefix}${getClientAddress(request)}`);
+    },
+  };
+}
+
+function createProvider(options = {}) {
+  if (options.provider) {
+    return options.provider;
+  }
+
+  const env = options.env || process.env;
+  const providerName = (env.MOVIE_PROVIDER || "local").toLowerCase();
+
+  if (providerName === "onedrive") {
+    return createOneDriveProvider({
+      env,
+      fetchImpl: options.fetchImpl || fetch,
+      store: options.store,
+    });
+  }
+
+  return createLocalProvider({
+    moviesDir: options.moviesDir || path.join(__dirname, "movies"),
+  });
+}
+
+function createAppContext(options = {}) {
+  const authConfig = buildAuthConfig(options.auth || {});
+  const store = options.store || createKeyValueStore({
+    env: options.env || process.env,
+    fetchImpl: options.fetchImpl || fetch,
+  });
+  const provider = createProvider({
+    ...options,
+    store,
+  });
+  const now = options.now || Date.now;
+
+  return {
+    authConfig,
+    provider,
+    publicDir: path.resolve(options.publicDir || path.join(__dirname, "public")),
+    sessionManager: createSessionManager(store, authConfig, now),
+    rateLimiter: createRateLimiter(store, authConfig, now),
+  };
+}
+
+function createRequestHandler(options = {}) {
+  const context = createAppContext(options);
+
+  return async function handleRequest(request, response) {
     try {
-      const url = new URL(request.url, "http://localhost");
+      const url = new URL(request.url, getOrigin(request));
+
+      if (request.method === "POST" && url.pathname === "/api/login") {
+        ensureSameOrigin(request);
+        if (!context.sessionManager.isConfigured()) {
+          throw new HttpError(503, "Authentication is not configured.");
+        }
+
+        await context.rateLimiter.assertCanAttempt(request);
+        const body = await readJsonBody(request, context.authConfig.bodyLimit);
+        const password = typeof body.password === "string" ? body.password : "";
+
+        if (!safeCompare(password, context.authConfig.password)) {
+          await context.rateLimiter.recordFailure(request);
+          throw new HttpError(401, "The password was not accepted.");
+        }
+
+        await context.rateLimiter.clear(request);
+        const cookie = await context.sessionManager.create(isSecureRequest(request));
+        sendEmpty(response, 204, noStoreHeaders({ "Set-Cookie": cookie }));
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/logout") {
+        ensureSameOrigin(request);
+        const cookie = await context.sessionManager.destroy(request);
+        sendEmpty(response, 204, noStoreHeaders({ "Set-Cookie": cookie }));
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/session") {
+        if (!context.sessionManager.isConfigured()) {
+          throw new HttpError(503, "Authentication is not configured.");
+        }
+
+        const session = await context.sessionManager.get(request, false);
+        await sendJson(response, 200, {
+          authenticated: Boolean(session),
+          expiresAt: session?.expiresAt ?? null,
+          provider: context.provider.kind,
+        }, noStoreHeaders());
+        return;
+      }
 
       if (request.method === "GET" && url.pathname === "/api/movies") {
-        const movies = await listMovies(moviesDir);
-        await sendJson(response, 200, movies);
+        await context.sessionManager.get(request, true);
+        const movies = await context.provider.listMovies();
+        await sendJson(response, 200, movies, noStoreHeaders());
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname.startsWith("/api/playback/")) {
+        await context.sessionManager.get(request, true);
+        const movieId = decodeURIComponent(url.pathname.slice("/api/playback/".length));
+        const playback = await context.provider.resolvePlayback(movieId);
+        await sendJson(response, 200, playback, noStoreHeaders());
         return;
       }
 
       if ((request.method === "GET" || request.method === "HEAD") && url.pathname.startsWith("/api/stream/")) {
-        const encodedFileName = url.pathname.slice("/api/stream/".length);
-        const filePath = resolveMoviePath(moviesDir, encodedFileName);
+        await context.sessionManager.get(request, true);
 
-        if (!filePath) {
-          await sendJson(response, 400, { error: "Invalid movie path." });
-          return;
+        if (context.provider.kind !== "local") {
+          throw new HttpError(404, "Streaming is not available for this provider.");
         }
 
-        if (!STREAMABLE_EXTENSIONS.has(path.extname(filePath).toLowerCase())) {
-          await sendJson(response, 415, { error: "Unsupported movie format." });
-          return;
+        const movieId = url.pathname.slice("/api/stream/".length);
+        const filePath = context.provider.resolveMoviePath(movieId);
+
+        if (!filePath) {
+          throw new HttpError(400, "Invalid movie path.");
+        }
+
+        if (!isWithinDirectory(context.provider.moviesDir, filePath)) {
+          throw new HttpError(400, "Invalid movie path.");
+        }
+
+        if (!isStreamableExtension(filePath)) {
+          throw new HttpError(415, "Unsupported movie format.");
         }
 
         let stats;
@@ -235,27 +590,23 @@ function createServer(options = {}) {
           stats = await fsp.stat(filePath);
         } catch (error) {
           if (error.code === "ENOENT") {
-            await sendJson(response, 404, { error: "Movie not found." });
-            return;
+            throw new HttpError(404, "Movie not found.");
           }
           throw error;
         }
 
         if (!stats.isFile()) {
-          await sendJson(response, 404, { error: "Movie not found." });
-          return;
+          throw new HttpError(404, "Movie not found.");
         }
 
         try {
           await ensureReadableFile(filePath);
         } catch (error) {
           if (error.code === "EACCES") {
-            await sendJson(response, 403, { error: "Movie is not readable." });
-            return;
+            throw new HttpError(403, "Movie is not readable.");
           }
           if (error.code === "ENOENT") {
-            await sendJson(response, 404, { error: "Movie not found." });
-            return;
+            throw new HttpError(404, "Movie not found.");
           }
           throw error;
         }
@@ -278,9 +629,9 @@ function createServer(options = {}) {
       }
 
       const publicPath = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
-      const filePath = path.resolve(publicDir, publicPath);
+      const filePath = path.resolve(context.publicDir, publicPath);
 
-      if (!isWithinDirectory(publicDir, filePath) && filePath !== path.join(publicDir, "index.html")) {
+      if (!isWithinDirectory(context.publicDir, filePath) && filePath !== path.join(context.publicDir, "index.html")) {
         response.writeHead(404);
         response.end("Not found");
         return;
@@ -304,10 +655,34 @@ function createServer(options = {}) {
       });
       response.end(request.method === "HEAD" ? undefined : fileContents);
     } catch (error) {
+      if (error instanceof HttpError) {
+        await sendJson(
+          response,
+          error.statusCode,
+          error.payload,
+          noStoreHeaders(error.headers),
+        );
+        return;
+      }
+
+      if (error && Number.isInteger(error.statusCode)) {
+        await sendJson(
+          response,
+          error.statusCode,
+          { error: error.message || "Request failed." },
+          noStoreHeaders(),
+        );
+        return;
+      }
+
       response.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
       response.end(JSON.stringify({ error: "Internal server error." }));
     }
-  });
+  };
+}
+
+function createServer(options = {}) {
+  return http.createServer(createRequestHandler(options));
 }
 
 async function startServer() {
@@ -325,10 +700,11 @@ if (require.main === module) {
 }
 
 module.exports = {
+  createAppContext,
+  createRequestHandler,
   createServer,
   ensureReadableFile,
-  getStreamHeaders,
-  listMovies,
-  resolveMoviePath,
   getContentType,
+  getStreamHeaders,
+  isWithinDirectory,
 };

@@ -1,26 +1,88 @@
 # Movie-Downloads
 
-A lightweight web app for streaming movies from your own shared library in the browser.
+A lightweight browser app for browsing and streaming a shared movie library behind one shared password.
 
-## What it does
+## What changed
 
-- Streams video over HTTP with byte-range support for smoother playback, seeking, and background buffering
-- Lets viewers watch online in a dedicated page instead of browsing a cloud-drive file listing
-- Automatically lists supported movie files from the local `movies/` folder
+- Password-protected catalog access with signed HttpOnly sessions
+- Recursive movie discovery for local files and OneDrive-backed libraries
+- Server-issued playback links so the browser can stream directly from the configured provider
+- Vercel-compatible request handling with optional KV-backed sessions, throttling, and token persistence
+
+## Supported providers
+
+### Local provider
+
+Use this for local development with sample files in `movies/`.
+
+```bash
+MOVIE_PROVIDER=local
+MOVIE_PASSWORD=yourpassword
+SESSION_SECRET=replace-with-a-long-random-secret
+npm start
+```
+
+Supported movie files are discovered recursively inside `movies/`.
+
+### OneDrive provider
+
+Use this for Vercel hosting after you have:
+
+1. A Microsoft app registration with delegated read access for the target OneDrive account
+2. A refresh token for that app/account
+3. The target `driveId` and root folder `itemId`
+4. KV REST credentials so sessions, login throttling, and rotated refresh tokens can persist across serverless instances
+
+Copy `.env.example` to a local `.env` file or configure the same values in Vercel:
+
+- `MOVIE_PROVIDER`
+- `MOVIE_PASSWORD`
+- `SESSION_SECRET`
+- `SESSION_TTL_MS`
+- `AUTH_RATE_LIMIT_WINDOW_MS`
+- `AUTH_RATE_LIMIT_MAX_ATTEMPTS`
+- `ONEDRIVE_CLIENT_ID`
+- `ONEDRIVE_CLIENT_SECRET`
+- `ONEDRIVE_REDIRECT_URI`
+- `ONEDRIVE_REFRESH_TOKEN`
+- `ONEDRIVE_DRIVE_ID`
+- `ONEDRIVE_ROOT_ITEM_ID`
+- `KV_REST_API_URL`
+- `KV_REST_API_TOKEN`
+
+The app never exposes the shared password, session secret, or OneDrive credentials to the browser.
 
 ## Getting started
 
-1. Put movie files such as `.mp4`, `.m4v`, `.mov`, `.webm`, `.ogg`, or `.mkv` into the project’s `movies/` folder
-2. Start the app:
+1. Put movie files such as `.mp4`, `.m4v`, `.mov`, `.webm`, `.ogg`, or `.mkv` into the project’s `movies/` folder for local development.
+2. Configure the required environment variables.
+3. Start the app:
 
    ```bash
    npm start
    ```
 
-3. Open `http://localhost:3000`
-4. Share that URL through your preferred hosting or tunnel so friends and family can watch online
+4. Open `http://localhost:3000`
+
+## Vercel deployment
+
+- `vercel.json` rewrites all routes to the Node handler in `api/index.js`
+- Protected API responses use `Cache-Control: private, no-store`
+- For production, configure the environment variables in Vercel before testing
 
 ## Commands
 
-- `npm start` — start the streaming web app
-- `npm test` — run the focused server tests
+- `npm start` — start the app locally
+- `npm test` — run the test suite
+
+## Remaining owner setup
+
+This repository now includes the app-side OneDrive integration points, but the deployment still needs private setup values that are intentionally not stored in Git:
+
+- The real shared password in `MOVIE_PASSWORD`
+- A strong random `SESSION_SECRET`
+- A Microsoft app registration and refresh token
+- The correct `ONEDRIVE_DRIVE_ID` and `ONEDRIVE_ROOT_ITEM_ID`
+- KV REST credentials for durable Vercel session/throttle/token storage
+
+If those values are missing, protected routes fail closed instead of allowing anonymous access.

@@ -10,6 +10,10 @@
         font-family: Arial, sans-serif;
       }
 
+      * {
+        box-sizing: border-box;
+      }
+
       body {
         margin: 0;
         background: #111827;
@@ -19,7 +23,7 @@
       main {
         max-width: 1100px;
         margin: 0 auto;
-        padding: 24px;
+        padding: 20px;
       }
 
       .panel {
@@ -29,10 +33,29 @@
         box-shadow: 0 20px 45px rgba(0, 0, 0, 0.25);
       }
 
-      h1 {
+      h1,
+      h2 {
         margin-top: 0;
       }
 
+      .stack {
+        display: grid;
+        gap: 20px;
+      }
+
+      form,
+      .controls {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      label {
+        font-weight: 600;
+      }
+
+      input,
       select,
       button {
         border: 0;
@@ -41,8 +64,9 @@
         font: inherit;
       }
 
+      input,
       select {
-        width: min(100%, 500px);
+        width: min(100%, 520px);
       }
 
       button {
@@ -51,11 +75,8 @@
         cursor: pointer;
       }
 
-      .controls {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin-bottom: 18px;
+      button.secondary {
+        background: #374151;
       }
 
       video {
@@ -66,30 +87,76 @@
       }
 
       .status {
-        margin-top: 12px;
         min-height: 1.5em;
         color: #bfdbfe;
       }
 
-      .hint {
+      .hint,
+      .detail {
         color: #d1d5db;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      @media (max-width: 640px) {
+        main {
+          padding: 14px;
+        }
+
+        .panel {
+          padding: 16px;
+        }
+
+        form,
+        .controls {
+          align-items: stretch;
+        }
+
+        input,
+        select,
+        button {
+          width: 100%;
+        }
       }
     </style>
   </head>
   <body>
-    <main>
+    <main class="stack">
       <section class="panel">
         <h1>Movie Room</h1>
         <p class="hint">
-          Stream movies directly in the browser from your own shared library.
-          Add video files to the server's <code>movies/</code> folder, then send
-          this page URL to family or friends.
+          Browse the shared movie library, then watch in the browser after entering the shared password.
         </p>
+      </section>
 
+      <section id="auth-panel" class="panel">
+        <h2>Enter shared password</h2>
+        <p class="detail">Sign in before the catalog and playback links are revealed.</p>
+        <form id="password-form">
+          <label for="password">Password</label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            required
+          />
+          <button type="submit">Enter movie room</button>
+        </form>
+        <p id="login-status" class="status"></p>
+      </section>
+
+      <section id="library-panel" class="panel" hidden>
         <div class="controls">
           <label for="movie-select">Choose a movie</label>
           <select id="movie-select"></select>
           <button id="reload" type="button">Reload library</button>
+          <button id="logout" class="secondary" type="button">Log out</button>
         </div>
 
         <video
@@ -99,7 +166,7 @@
           playsinline
           controlsList="nodownload"
         ></video>
-        <p id="status" class="status">Loading library…</p>
+        <p id="status" class="status">Checking session…</p>
       </section>
     </main>
 
