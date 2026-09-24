@@ -2109,7 +2109,13 @@ test("recursively lists OneDrive items and resolves fresh playback links", async
           ok: true,
           json: async () => ({
             value: [
-              { id: "movie-2", name: "Movie-Two.mkv", file: {}, size: 2048 },
+              {
+                id: "movie-2",
+                name: "Movie-Two.mkv",
+                file: {},
+                size: 2048,
+                thumbnails: [{ medium: { url: "https://thumbs.example/movie-two.jpg" } }],
+              },
             ],
           }),
         };
@@ -2132,7 +2138,7 @@ test("recursively lists OneDrive items and resolves fresh playback links", async
     movies.map((movie) => ({ title: movie.title, folder: movie.folder, posterUrl: movie.posterUrl })),
     [
       { title: "Movie One", folder: "", posterUrl: "/posters/movie-one.jpg" },
-      { title: "Movie Two", folder: "Collections", posterUrl: "/posters/movie-two.jpg" },
+      { title: "Movie Two", folder: "Collections", posterUrl: "https://thumbs.example/movie-two.jpg" },
     ],
   );
 

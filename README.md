@@ -11,6 +11,7 @@ A lightweight browser app for browsing and streaming a shared movie library behi
 - Opaque, time-limited Cast playback tickets so TVs never receive the browser session cookie
 - Safari AirPlay support remains available for iPhone and iPad
 - YouTube-style responsive thumbnails, compact cleaned titles, and local Home, Family, and Guest viewer profiles
+- OneDrive video thumbnails use Microsoft Graph's generated frame when a downloaded title poster is unavailable, so every uploaded movie can still be recognized
 - A prominent Full Screen action that disappears after the video enters full-screen mode
 - Fire TV playback sets the Android keep-screen-on flag until you return to the library, preventing the TV screensaver during a movie
 - Vercel-compatible request handling with durable KV-backed sessions, throttling, and token persistence
@@ -67,7 +68,7 @@ The first-run permissions button does not open a broad Bluetooth chooser. Google
 
 ## Private Fire TV app
 
-The private Fire TV app lives in `firetv/`. It is for sideloading onto the owner's Fire TV devices and is not an Amazon Appstore submission.
+The private Fire TV app lives in `firetv/`. It is for sideloading onto the owner's Fire TV devices and is not an Amazon Appstore submission. Its launcher banner is the black-and-gold `TaylorMade Movies` cover artwork.
 
 Build a debug APK:
 

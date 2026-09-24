@@ -9,9 +9,9 @@
 
     <application
         android:allowBackup="false"
-        android:banner="@drawable/banner"
+        android:banner="@drawable/taylormade_movies_cover"
         android:icon="@drawable/ic_launcher"
-        android:label="Movie Room"
+        android:label="TaylorMade Movies"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
         <activity
