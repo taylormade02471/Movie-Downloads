@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 
 const { createReadStream, promises: fsp } = fs;
+const { R_OK } = fs.constants;
 
 const STREAMABLE_EXTENSIONS = new Set([
   ".mp4",
@@ -100,6 +101,10 @@ function resolveMoviePath(moviesDir, encodedFileName) {
 async function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(payload));
+}
+
+async function ensureReadableFile(filePath) {
+  await fsp.access(filePath, R_OK);
 }
 
 function getStreamHeaders(filePath, size, range) {
@@ -241,6 +246,20 @@ function createServer(options = {}) {
           return;
         }
 
+        try {
+          await ensureReadableFile(filePath);
+        } catch (error) {
+          if (error.code === "EACCES") {
+            await sendJson(response, 403, { error: "Movie is not readable." });
+            return;
+          }
+          if (error.code === "ENOENT") {
+            await sendJson(response, 404, { error: "Movie not found." });
+            return;
+          }
+          throw error;
+        }
+
         if (request.method === "HEAD") {
           const streamResponse = getStreamHeaders(filePath, stats.size, request.headers.range);
           response.writeHead(streamResponse.statusCode, streamResponse.headers);
@@ -307,6 +326,7 @@ if (require.main === module) {
 
 module.exports = {
   createServer,
+  ensureReadableFile,
   getStreamHeaders,
   listMovies,
   resolveMoviePath,

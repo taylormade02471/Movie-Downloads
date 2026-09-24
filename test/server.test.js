@@ -163,3 +163,30 @@ test("surfaces movie library load failures in the status message", async () => {
 
   assert.equal(status.textContent, "Unable to load movie library.");
 });
+
+test("returns 403 for unreadable movie streams on HEAD requests", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("POSIX-style permission checks are not reliable on Windows.");
+  }
+
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  const moviePath = path.join(moviesDir, "locked.mp4");
+  fs.writeFileSync(moviePath, "0123456789");
+  fs.chmodSync(moviePath, 0o000);
+
+  const server = createServer({ moviesDir, publicDir });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+
+  t.after(() => {
+    server.close();
+    fs.chmodSync(moviePath, 0o644);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const response = await fetch(`http://127.0.0.1:${port}/api/stream/locked.mp4`, {
+    method: "HEAD",
+  });
+
+  assert.equal(response.status, 403);
+});
