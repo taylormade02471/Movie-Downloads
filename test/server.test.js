@@ -153,6 +153,48 @@ test("logs in, lists nested local movies, resolves playback, and logs out", asyn
   assert.equal(afterLogoutResponse.status, 401);
 });
 
+test("returns folder previews including empty hidden local folders", async (t) => {
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  fs.mkdirSync(path.join(moviesDir, ".Hidden Uploads"), { recursive: true });
+  fs.mkdirSync(path.join(moviesDir, "Coming Soon"), { recursive: true });
+  fs.writeFileSync(path.join(moviesDir, "Coming Soon", "Ready.mp4"), "abcdef");
+
+  const server = await startServer(createAuthOptions({ moviesDir, publicDir }));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const authResponse = await login(port);
+  const sessionCookie = authResponse.headers.get("set-cookie");
+
+  const libraryResponse = await fetch(`http://127.0.0.1:${port}/api/library`, {
+    headers: { Cookie: sessionCookie },
+  });
+  assert.equal(libraryResponse.status, 200);
+
+  const library = await libraryResponse.json();
+  assert.deepEqual(
+    library.movies.map((movie) => ({ title: movie.title, folder: movie.folder, extension: movie.extension })),
+    [{ title: "Ready", folder: "Coming Soon", extension: ".mp4" }],
+  );
+  assert.deepEqual(
+    library.folders.map((folder) => ({
+      path: folder.path,
+      hidden: folder.hidden,
+      movieCount: folder.movieCount,
+      playableCount: folder.playableCount,
+    })),
+    [
+      { path: ".Hidden Uploads", hidden: true, movieCount: 0, playableCount: 0 },
+      { path: "Collections", hidden: false, movieCount: 0, playableCount: 0 },
+      { path: "Coming Soon", hidden: false, movieCount: 1, playableCount: 1 },
+    ],
+  );
+});
+
 test("expires and rejects tampered sessions", async (t) => {
   const { root, moviesDir, publicDir } = createTempLibrary();
   fs.writeFileSync(path.join(moviesDir, "clip.mp4"), "0123456789");
@@ -516,7 +558,7 @@ test("starts the selected movie after a successful login", async () => {
       if (url === "/api/login") {
         return { ok: true, status: 204 };
       }
-      if (url === "/api/movies") {
+      if (url === "/api/library") {
         return {
           ok: true,
           status: 200,
@@ -544,7 +586,7 @@ test("starts the selected movie after a successful login", async () => {
   assert.equal(status.textContent, "Loading video ahead for smooth playback…");
   assert.deepEqual(
     requests.map((request) => request.url),
-    ["/api/login", "/api/movies", "/api/playback"],
+    ["/api/login", "/api/library", "/api/playback"],
   );
   assert.equal(requests[2].options.method, "POST");
   assert.equal(requests[2].options.body, JSON.stringify({ movieId: "movie-1" }));
@@ -619,7 +661,7 @@ test("refreshes a temporary playback link once after a player error", async () =
           json: async () => ({ authenticated: true, authConfigured: true }),
         };
       }
-      if (url === "/api/movies") {
+      if (url === "/api/library") {
         return {
           ok: true,
           status: 200,
@@ -697,7 +739,7 @@ test("selects an uploaded movie and labels unfinished OneDrive entries", async (
     authPanel: {},
     libraryPanel: {},
     fetchImpl: async (url) => {
-      assert.equal(url, "/api/movies");
+      assert.equal(url, "/api/library");
       return {
         ok: true,
         status: 200,
@@ -781,7 +823,7 @@ test("refreshes and resumes a stream after a sustained stall", async () => {
           json: async () => ({ authenticated: true, authConfigured: true }),
         };
       }
-      if (url === "/api/movies") {
+      if (url === "/api/library") {
         return {
           ok: true,
           status: 200,

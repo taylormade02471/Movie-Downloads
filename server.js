@@ -610,6 +610,15 @@ function createRequestHandler(options = {}) {
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/api/library") {
+        await context.sessionManager.get(request, true);
+        const library = typeof context.provider.listLibrary === "function"
+          ? await context.provider.listLibrary()
+          : { movies: await context.provider.listMovies(), folders: [] };
+        await sendJson(response, 200, library, noStoreHeaders());
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/api/playback") {
         ensureSameOrigin(request, context.appOrigin, context.trustProxy);
         await context.sessionManager.get(request, true);

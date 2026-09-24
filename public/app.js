@@ -2,12 +2,16 @@ function createApp({
   movieSelect,
   reloadButton,
   logoutButton,
+  searchInput,
   passwordForm,
   passwordInput,
   submitButton,
   player,
   status,
   loginStatus,
+  librarySummary,
+  folderShelf,
+  movieGrid,
   authPanel,
   libraryPanel,
   fetchImpl,
@@ -25,6 +29,11 @@ function createApp({
   let stallPosition = null;
   let playbackRequestVersion = 0;
   let stableRefreshPosition = null;
+  let allMovies = [];
+  let allFolders = [];
+  let activeFolder = "all";
+  let searchTerm = "";
+  const expectedLibraryCount = 16;
 
   function updateStatus(message) {
     status.textContent = message;
@@ -84,6 +93,15 @@ function createApp({
   function setAuthenticated(authenticated) {
     authPanel.hidden = authenticated;
     libraryPanel.hidden = !authenticated;
+    if (searchInput) {
+      searchInput.disabled = !authenticated;
+    }
+    if (reloadButton) {
+      reloadButton.disabled = !authenticated;
+    }
+    if (logoutButton) {
+      logoutButton.disabled = !authenticated;
+    }
   }
 
   function setAuthUnavailable(unavailable) {
@@ -110,6 +128,219 @@ function createApp({
 
     const sizeInGb = (size / (1024 ** 3)).toFixed(2);
     return `${movie.title}${folderLabel} (${sizeInGb} GB)`;
+  }
+
+  function movieSizeLabel(size) {
+    const numericSize = Number(size) || 0;
+    if (numericSize <= 0) {
+      return "still uploading";
+    }
+
+    if (numericSize >= 1024 ** 3) {
+      return `${(numericSize / (1024 ** 3)).toFixed(2)} GB`;
+    }
+
+    if (numericSize >= 1024 ** 2) {
+      return `${(numericSize / (1024 ** 2)).toFixed(0)} MB`;
+    }
+
+    return `${numericSize} bytes`;
+  }
+
+  function normalizeLibraryPayload(payload) {
+    if (Array.isArray(payload)) {
+      return { movies: payload, folders: [] };
+    }
+
+    return {
+      movies: Array.isArray(payload?.movies) ? payload.movies : [],
+      folders: Array.isArray(payload?.folders) ? payload.folders : [],
+    };
+  }
+
+  function buildFoldersFromMovies(movies, folders) {
+    const folderMap = new Map();
+    for (const folder of folders) {
+      if (!folder?.path) {
+        continue;
+      }
+      folderMap.set(folder.path, {
+        ...folder,
+        name: folder.name || folder.path.split("/").pop(),
+      });
+    }
+
+    for (const movie of movies) {
+      if (!movie.folder) {
+        continue;
+      }
+
+      const parts = movie.folder.split("/");
+      for (let index = 0; index < parts.length; index += 1) {
+        const folderPath = parts.slice(0, index + 1).join("/");
+        if (!folderMap.has(folderPath)) {
+          folderMap.set(folderPath, {
+            id: folderPath,
+            path: folderPath,
+            name: parts[index],
+            parent: parts.slice(0, index).join("/"),
+            hidden: parts[index].startsWith("."),
+          });
+        }
+      }
+    }
+
+    return Array.from(folderMap.values()).map((folder) => {
+      const descendantMovies = movies.filter((movie) => (
+        movie.folder === folder.path || movie.folder.startsWith(`${folder.path}/`)
+      ));
+      return {
+        ...folder,
+        movieCount: Number.isFinite(Number(folder.movieCount)) ? Number(folder.movieCount) : descendantMovies.length,
+        playableCount: Number.isFinite(Number(folder.playableCount))
+          ? Number(folder.playableCount)
+          : descendantMovies.filter((movie) => (Number(movie.size) || 0) > 0).length,
+        uploadingCount: Number.isFinite(Number(folder.uploadingCount))
+          ? Number(folder.uploadingCount)
+          : descendantMovies.filter((movie) => (Number(movie.size) || 0) <= 0).length,
+      };
+    }).sort((left, right) => left.path.localeCompare(right.path));
+  }
+
+  function movieMatchesFilter(movie) {
+    const folderMatches = activeFolder === "all"
+      || (activeFolder === "" && !movie.folder)
+      || movie.folder === activeFolder
+      || movie.folder.startsWith(`${activeFolder}/`);
+    const searchable = `${movie.title || ""} ${movie.fileName || ""} ${movie.folder || ""}`.toLowerCase();
+    return folderMatches && searchable.includes(searchTerm);
+  }
+
+  function updateLibrarySummary(movies) {
+    if (!librarySummary) {
+      return;
+    }
+
+    const foundCount = movies.length;
+    const playableCount = movies.filter((movie) => (Number(movie.size) || 0) > 0).length;
+    const uploadingCount = foundCount - playableCount;
+    const waitingCount = Math.max(expectedLibraryCount - foundCount, 0);
+    const parts = [
+      `${foundCount} of ${expectedLibraryCount} files found`,
+      `${playableCount} ready`,
+    ];
+
+    if (uploadingCount > 0) {
+      parts.push(`${uploadingCount} still uploading`);
+    }
+    if (waitingCount > 0) {
+      parts.push(`${waitingCount} not there yet`);
+    }
+
+    librarySummary.textContent = parts.join(" / ");
+  }
+
+  function renderFolderShelf() {
+    if (!folderShelf || typeof folderShelf.replaceChildren !== "function") {
+      return;
+    }
+
+    const documentRef = folderShelf.ownerDocument;
+    const folders = buildFoldersFromMovies(allMovies, allFolders);
+    const buttons = [];
+
+    function createFolderButton(label, folderPath, count, extraText = "") {
+      const button = documentRef.createElement("button");
+      button.type = "button";
+      button.className = "folder-chip";
+      if (activeFolder === folderPath) {
+        button.classList.add("active");
+      }
+      button.textContent = extraText ? `${label} ${extraText} ${count}` : `${label} ${count}`;
+      button.addEventListener("click", () => {
+        activeFolder = folderPath;
+        renderLibrary();
+      });
+      return button;
+    }
+
+    buttons.push(createFolderButton("All", "all", allMovies.length));
+    buttons.push(createFolderButton("Main Folder", "", allMovies.filter((movie) => !movie.folder).length));
+
+    for (const folder of folders) {
+      buttons.push(createFolderButton(
+        folder.name,
+        folder.path,
+        folder.movieCount || 0,
+        folder.hidden ? "hidden" : "",
+      ));
+    }
+
+    folderShelf.replaceChildren(...buttons);
+  }
+
+  function renderMovieGrid() {
+    if (!movieGrid || typeof movieGrid.replaceChildren !== "function") {
+      return;
+    }
+
+    const documentRef = movieGrid.ownerDocument;
+    const filteredMovies = allMovies.filter(movieMatchesFilter);
+
+    if (!filteredMovies.length) {
+      const emptyState = documentRef.createElement("p");
+      emptyState.className = "empty-state";
+      emptyState.textContent = "No matching files here yet.";
+      movieGrid.replaceChildren(emptyState);
+      return;
+    }
+
+    const cards = filteredMovies.map((movie) => {
+      const button = documentRef.createElement("button");
+      const ready = (Number(movie.size) || 0) > 0;
+      button.type = "button";
+      button.className = ready ? "movie-card" : "movie-card unavailable";
+      button.disabled = !ready;
+      button.dataset.movieId = movie.id;
+
+      const poster = documentRef.createElement("span");
+      poster.className = "poster";
+      poster.textContent = (movie.extension || movie.fileName || "video").replace(".", "").slice(0, 4).toUpperCase();
+
+      const title = documentRef.createElement("span");
+      title.className = "movie-title";
+      title.textContent = movie.title || movie.fileName || "Untitled movie";
+
+      const meta = documentRef.createElement("span");
+      meta.className = "movie-meta";
+      meta.textContent = [movie.folder || "Main Folder", movieSizeLabel(movie.size)].join(" / ");
+
+      const badge = documentRef.createElement("span");
+      badge.className = ready ? "ready-badge" : "upload-badge";
+      badge.textContent = ready ? "Ready" : "Still uploading";
+
+      button.append(poster, title, meta, badge);
+      button.addEventListener("click", () => {
+        if (!ready) {
+          return;
+        }
+
+        movieSelect.value = movie.id;
+        playSelectedMovie().catch((error) => {
+          updateStatus(error.message);
+        });
+      });
+
+      return button;
+    });
+
+    movieGrid.replaceChildren(...cards);
+  }
+
+  function renderLibrary() {
+    updateLibrarySummary(allMovies);
+    renderFolderShelf();
+    renderMovieGrid();
   }
 
   async function handleApiResponse(response, fallbackMessage) {
@@ -145,18 +376,22 @@ function createApp({
     movieSelect.disabled = true;
 
     const response = await handleApiResponse(
-      await fetchImpl("/api/movies", { credentials: "same-origin" }),
+      await fetchImpl("/api/library", { credentials: "same-origin" }),
       "Unable to load movie library.",
     );
 
-    const movies = await response.json();
+    const library = normalizeLibraryPayload(await response.json());
+    const movies = library.movies;
+    allMovies = movies;
+    allFolders = library.folders;
     movieSelect.innerHTML = "";
+    renderLibrary();
 
     if (!movies.length) {
       movieSelect.disabled = true;
       player.removeAttribute("src");
       player.load();
-      updateStatus("No movies found yet. Add supported video files to the active movie provider.");
+      updateStatus("No movie files found yet. When the files finish showing up in the Downloads folder, they will appear here.");
       return [];
     }
 
@@ -177,7 +412,7 @@ function createApp({
       movieSelect.disabled = true;
       player.removeAttribute("src");
       player.load();
-      updateStatus("Movies are listed, but they are still uploading to OneDrive.");
+      updateStatus("Movie files are listed, but they are still uploading to OneDrive.");
       return [];
     }
 
@@ -188,6 +423,7 @@ function createApp({
 
     movieSelect.disabled = false;
     updateStatus("Library ready. Loading the selected movie for smooth playback.");
+    renderLibrary();
     return playableMovies;
   }
 
@@ -427,6 +663,14 @@ function createApp({
     movieSelect.innerHTML = "";
     movieSelect.value = "";
     movieSelect.disabled = true;
+    allMovies = [];
+    allFolders = [];
+    activeFolder = "all";
+    searchTerm = "";
+    if (searchInput) {
+      searchInput.value = "";
+    }
+    renderLibrary();
     player.removeAttribute("src");
     player.load();
     updateStatus("Signed out.");
@@ -463,6 +707,13 @@ function createApp({
         announceLoginError(error.message);
       });
     });
+
+    if (searchInput) {
+      searchInput.addEventListener("input", () => {
+        searchTerm = searchInput.value.trim().toLowerCase();
+        renderMovieGrid();
+      });
+    }
 
     player.addEventListener("waiting", () => {
       scheduleStallRecovery("Loading more video while keeping your place…");
@@ -599,12 +850,16 @@ if (typeof document !== "undefined") {
     movieSelect: document.getElementById("movie-select"),
     reloadButton: document.getElementById("reload"),
     logoutButton: document.getElementById("logout"),
+    searchInput: document.getElementById("library-search"),
     passwordForm: document.getElementById("password-form"),
     passwordInput: document.getElementById("password"),
     submitButton: document.getElementById("login-submit"),
     player: document.getElementById("player"),
     status: document.getElementById("status"),
     loginStatus: document.getElementById("login-status"),
+    librarySummary: document.getElementById("library-summary"),
+    folderShelf: document.getElementById("folder-shelf"),
+    movieGrid: document.getElementById("movie-grid"),
     authPanel: document.getElementById("auth-panel"),
     libraryPanel: document.getElementById("library-panel"),
     fetchImpl: fetch,
