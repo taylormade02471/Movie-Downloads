@@ -450,3 +450,66 @@ test("recursively lists OneDrive items and resolves fresh playback links", async
   assert.equal(await store.get("onedrive:refresh-token"), "rotated-token");
   assert.match(requests[0].url, /oauth2\/v2\.0\/token/);
 });
+
+test("surfaces a OneDrive token refresh failure", async () => {
+  const provider = createOneDriveProvider({
+    env: {
+      ONEDRIVE_CLIENT_ID: "client-id",
+      ONEDRIVE_CLIENT_SECRET: "client-secret",
+      ONEDRIVE_REDIRECT_URI: "http://localhost/callback",
+      ONEDRIVE_REFRESH_TOKEN: "refresh-token",
+      ONEDRIVE_DRIVE_ID: "drive-id",
+      ONEDRIVE_ROOT_ITEM_ID: "root-item",
+    },
+    store: new MemoryStore(),
+    fetchImpl: async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: "bad_request" }),
+    }),
+  });
+
+  await assert.rejects(
+    provider.listMovies(),
+    /refresh token exchange failed/i,
+  );
+});
+
+test("rejects a OneDrive playback response without a usable file url", async () => {
+  const provider = createOneDriveProvider({
+    env: {
+      ONEDRIVE_CLIENT_ID: "client-id",
+      ONEDRIVE_CLIENT_SECRET: "client-secret",
+      ONEDRIVE_REDIRECT_URI: "http://localhost/callback",
+      ONEDRIVE_REFRESH_TOKEN: "refresh-token",
+      ONEDRIVE_DRIVE_ID: "drive-id",
+      ONEDRIVE_ROOT_ITEM_ID: "root-item",
+    },
+    store: new MemoryStore(),
+    fetchImpl: async (url) => {
+      if (String(url).includes("/oauth2/v2.0/token")) {
+        return {
+          ok: true,
+          json: async () => ({
+            access_token: "access-token",
+            expires_in: 3600,
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({
+          id: "movie-1",
+          name: "Movie-One.mp4",
+          file: {},
+        }),
+      };
+    },
+  });
+
+  await assert.rejects(
+    provider.resolvePlayback("movie-1"),
+    /did not return a playback url/i,
+  );
+});

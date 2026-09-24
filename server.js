@@ -135,9 +135,9 @@ function safeCompare(value, expected) {
   return crypto.timingSafeEqual(left, right);
 }
 
-function getClientAddress(request) {
+function getClientAddress(request, trustProxy = false) {
   const forwarded = request.headers["x-forwarded-for"];
-  if (typeof forwarded === "string" && forwarded.length) {
+  if (trustProxy && typeof forwarded === "string" && forwarded.length) {
     return forwarded.split(",")[0].trim();
   }
   return request.socket.remoteAddress || "unknown";
@@ -179,9 +179,11 @@ async function readJsonBody(request, limit = DEFAULT_BODY_LIMIT) {
   }
 }
 
-function ensureSameOrigin(request) {
+function ensureSameOrigin(request, expectedOrigin = "") {
   const origin = request.headers.origin;
-  if (origin && origin !== getOrigin(request)) {
+  const allowedOrigin = expectedOrigin || getOrigin(request);
+
+  if (origin && origin !== allowedOrigin) {
     throw new HttpError(403, "Cross-site requests are not allowed.");
   }
 
@@ -421,12 +423,12 @@ function createSessionManager(store, authConfig, now = Date.now) {
   };
 }
 
-function createRateLimiter(store, authConfig, now = Date.now) {
+function createRateLimiter(store, authConfig, now = Date.now, trustProxy = false) {
   const prefix = "login-attempts:";
 
   return {
     async assertCanAttempt(request) {
-      const key = `${prefix}${getClientAddress(request)}`;
+      const key = `${prefix}${getClientAddress(request, trustProxy)}`;
       const stateJson = await store.get(key);
       const state = stateJson ? JSON.parse(stateJson) : null;
 
@@ -439,7 +441,7 @@ function createRateLimiter(store, authConfig, now = Date.now) {
       }
     },
     async recordFailure(request) {
-      const key = `${prefix}${getClientAddress(request)}`;
+      const key = `${prefix}${getClientAddress(request, trustProxy)}`;
       const stateJson = await store.get(key);
       const currentTime = now();
       let state = stateJson ? JSON.parse(stateJson) : null;
@@ -452,7 +454,7 @@ function createRateLimiter(store, authConfig, now = Date.now) {
       await store.set(key, JSON.stringify(state), authConfig.rateLimitWindowMs);
     },
     async clear(request) {
-      await store.delete(`${prefix}${getClientAddress(request)}`);
+      await store.delete(`${prefix}${getClientAddress(request, trustProxy)}`);
     },
   };
 }
@@ -489,13 +491,19 @@ function createAppContext(options = {}) {
     store,
   });
   const now = options.now || Date.now;
+  const env = options.env || process.env;
+  const appOrigin = options.appOrigin
+    || env.APP_ORIGIN
+    || (env.VERCEL_URL ? `https://${env.VERCEL_URL}` : "");
+  const trustProxy = options.trustProxy ?? (env.TRUST_PROXY === "true" || Boolean(env.VERCEL));
 
   return {
+    appOrigin,
     authConfig,
     provider,
     publicDir: path.resolve(options.publicDir || path.join(__dirname, "public")),
     sessionManager: createSessionManager(store, authConfig, now),
-    rateLimiter: createRateLimiter(store, authConfig, now),
+    rateLimiter: createRateLimiter(store, authConfig, now, trustProxy),
   };
 }
 
@@ -505,9 +513,13 @@ function createRequestHandler(options = {}) {
   return async function handleRequest(request, response) {
     try {
       const url = new URL(request.url, getOrigin(request));
+      if (url.pathname === "/api" && url.searchParams.has("pathname")) {
+        url.pathname = `/${url.searchParams.get("pathname").replace(/^\/+/, "")}`;
+        url.searchParams.delete("pathname");
+      }
 
       if (request.method === "POST" && url.pathname === "/api/login") {
-        ensureSameOrigin(request);
+        ensureSameOrigin(request, context.appOrigin);
         if (!context.sessionManager.isConfigured()) {
           throw new HttpError(503, "Authentication is not configured.");
         }
@@ -528,7 +540,7 @@ function createRequestHandler(options = {}) {
       }
 
       if (request.method === "POST" && url.pathname === "/api/logout") {
-        ensureSameOrigin(request);
+        ensureSameOrigin(request, context.appOrigin);
         const cookie = await context.sessionManager.destroy(request);
         sendEmpty(response, 204, noStoreHeaders({ "Set-Cookie": cookie }));
         return;

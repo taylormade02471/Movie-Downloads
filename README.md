@@ -36,6 +36,8 @@ Use this for Vercel hosting after you have:
 Copy `.env.example` to a local `.env` file or configure the same values in Vercel:
 
 - `MOVIE_PROVIDER`
+- `APP_ORIGIN`
+- `TRUST_PROXY`
 - `MOVIE_PASSWORD`
 - `SESSION_SECRET`
 - `SESSION_TTL_MS`
@@ -67,6 +69,8 @@ The app never exposes the shared password, session secret, or OneDrive credentia
 ## Vercel deployment
 
 - `vercel.json` rewrites all routes to the Node handler in `api/index.js`
+- Set `APP_ORIGIN` to the exact deployed site origin for CSRF checks
+- Set `TRUST_PROXY=true` on Vercel so auth throttling keys can use the platform-provided forwarded client IP
 - Protected API responses use `Cache-Control: private, no-store`
 - For production, configure the environment variables in Vercel before testing
 

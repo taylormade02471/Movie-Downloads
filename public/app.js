@@ -163,7 +163,7 @@ function createApp({
   }
 
   async function handleLogout() {
-    await fetchImpl("/api/logout", {
+    const response = await fetchImpl("/api/logout", {
       method: "POST",
       credentials: "same-origin",
       headers: {
@@ -171,6 +171,8 @@ function createApp({
       },
       body: "{}",
     });
+
+    await handleApiResponse(response, "Unable to sign out.");
 
     setAuthenticated(false);
     player.removeAttribute("src");
