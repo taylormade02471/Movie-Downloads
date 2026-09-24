@@ -99,3 +99,28 @@ test("supports suffix byte ranges and HEAD range probes", async (t) => {
   assert.equal(headResponse.headers.get("content-length"), "4");
   assert.equal(await headResponse.text(), "");
 });
+
+test("clamps oversized ranges and rejects traversal attempts", async (t) => {
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  fs.writeFileSync(path.join(moviesDir, "clip.mp4"), "0123456789");
+
+  const server = createServer({ moviesDir, publicDir });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const oversizedRangeResponse = await fetch(`http://127.0.0.1:${port}/api/stream/clip.mp4`, {
+    headers: { Range: "bytes=0-999999" },
+  });
+
+  assert.equal(oversizedRangeResponse.status, 206);
+  assert.equal(oversizedRangeResponse.headers.get("content-range"), "bytes 0-9/10");
+  assert.equal(await oversizedRangeResponse.text(), "0123456789");
+
+  const traversalResponse = await fetch(`http://127.0.0.1:${port}/api/stream/..%2Fclip.mp4`);
+  assert.equal(traversalResponse.status, 400);
+});

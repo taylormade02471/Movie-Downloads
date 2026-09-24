@@ -84,9 +84,13 @@ function resolveMoviePath(moviesDir, encodedFileName) {
     return null;
   }
 
+  if (fileName !== path.basename(fileName)) {
+    return null;
+  }
+
   const fullPath = path.resolve(moviesDir, fileName);
 
-  if (!isWithinDirectory(moviesDir, fullPath) && fullPath !== path.resolve(moviesDir, path.basename(fileName))) {
+  if (!isWithinDirectory(moviesDir, fullPath)) {
     return null;
   }
 
@@ -145,14 +149,15 @@ function getStreamHeaders(filePath, size, range) {
     Number.isNaN(end) ||
     start < 0 ||
     end < start ||
-    start >= size ||
-    end >= size
+    start >= size
   ) {
     return {
       statusCode: 416,
       headers: { "Content-Range": `bytes */${size}` },
     };
   }
+
+  end = Math.min(end, size - 1);
 
   return {
     statusCode: 206,
@@ -185,7 +190,11 @@ function streamFile(request, response, filePath, size) {
   createReadStream(filePath, {
     start: streamResponse.start,
     end: streamResponse.end,
-  }).pipe(response);
+  })
+    .on("error", () => {
+      response.destroy();
+    })
+    .pipe(response);
 }
 
 function createServer(options = {}) {
