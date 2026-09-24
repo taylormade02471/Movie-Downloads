@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Movie Room</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Arial, sans-serif;
+      }
+
+      body {
+        margin: 0;
+        background: #111827;
+        color: #f9fafb;
+      }
+
+      main {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+
+      .panel {
+        background: #1f2937;
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 20px 45px rgba(0, 0, 0, 0.25);
+      }
+
+      h1 {
+        margin-top: 0;
+      }
+
+      select,
+      button {
+        border: 0;
+        border-radius: 10px;
+        padding: 12px 14px;
+        font: inherit;
+      }
+
+      select {
+        width: min(100%, 500px);
+      }
+
+      button {
+        background: #2563eb;
+        color: white;
+        cursor: pointer;
+      }
+
+      .controls {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 18px;
+      }
+
+      video {
+        width: 100%;
+        max-height: 70vh;
+        background: black;
+        border-radius: 14px;
+      }
+
+      .status {
+        margin-top: 12px;
+        min-height: 1.5em;
+        color: #bfdbfe;
+      }
+
+      .hint {
+        color: #d1d5db;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="panel">
+        <h1>Movie Room</h1>
+        <p class="hint">
+          Stream movies directly in the browser from your own shared library.
+          Add video files to the server's <code>movies/</code> folder, then send
+          this page URL to family or friends.
+        </p>
+
+        <div class="controls">
+          <label for="movie-select">Choose a movie</label>
+          <select id="movie-select"></select>
+          <button id="reload" type="button">Reload library</button>
+        </div>
+
+        <video
+          id="player"
+          controls
+          preload="auto"
+          playsinline
+          controlsList="nodownload"
+        ></video>
+        <p id="status" class="status">Loading library…</p>
+      </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+  </html>

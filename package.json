@@ -1,0 +1,17 @@
+{
+  "name": "movie-downloads",
+  "version": "1.0.0",
+  "description": "Simple browser-based movie streaming app for a shared personal library",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/taylormade02471/Movie-Downloads.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
