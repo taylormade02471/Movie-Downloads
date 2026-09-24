@@ -38,6 +38,14 @@ function noStoreHeaders(extraHeaders = {}) {
   return {
     "Cache-Control": "private, no-store, max-age=0",
     Pragma: "no-cache",
+    ...mediaFeatureHeaders(),
+    ...extraHeaders,
+  };
+}
+
+function mediaFeatureHeaders(extraHeaders = {}) {
+  return {
+    "Permissions-Policy": "autoplay=(self), fullscreen=(self), picture-in-picture=(self), screen-wake-lock=(self)",
     ...extraHeaders,
   };
 }
@@ -743,6 +751,7 @@ function createRequestHandler(options = {}) {
       response.writeHead(200, {
         "Content-Type": getContentType(filePath),
         "Content-Length": fileContents.length,
+        ...mediaFeatureHeaders(),
       });
       response.end(request.method === "HEAD" ? undefined : fileContents);
     } catch (error) {

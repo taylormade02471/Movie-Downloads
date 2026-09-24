@@ -192,6 +192,38 @@
         line-height: 1.1;
       }
 
+      .player-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .buffer-status {
+        --buffer-progress: 0%;
+        position: relative;
+        overflow: hidden;
+        min-height: 1.4em;
+        width: min(520px, 100%);
+        border-radius: 999px;
+        padding: 8px 12px;
+        background: #1d1d1d;
+        color: #dcdcdc;
+        font-size: 13px;
+      }
+
+      .buffer-status::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        width: var(--buffer-progress);
+        background: rgba(39, 174, 96, 0.34);
+      }
+
+      .buffer-status span,
+      .buffer-status {
+        isolation: isolate;
+      }
+
       .controls {
         display: grid;
         grid-template-columns: minmax(220px, 1fr) auto auto;
@@ -428,12 +460,19 @@
               controls
               preload="auto"
               playsinline
+              x-webkit-airplay="allow"
               controlsList="nodownload"
               aria-describedby="status"
             ></video>
           </div>
           <div class="watch-meta">
             <h1>Now Playing</h1>
+            <div class="player-actions" aria-label="TV and phone playback controls">
+              <button id="cast-tv" type="button">Cast / AirPlay</button>
+              <button id="keep-awake" class="secondary" type="button">Keep Awake</button>
+              <button id="fullscreen-player" class="secondary" type="button">Fullscreen</button>
+            </div>
+            <p id="buffer-status" class="buffer-status">Buffer target: 0 seconds ready of 5 minutes.</p>
             <p class="detail">Smooth playback loads the selected movie ahead inside this page and may use more data.</p>
             <p id="status" class="status" role="status" aria-live="polite">Checking session...</p>
           </div>

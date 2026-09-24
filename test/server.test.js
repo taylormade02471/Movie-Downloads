@@ -69,6 +69,10 @@ test("serves the watch page and protects the movie catalog", async (t) => {
   const pageResponse = await fetch(`http://127.0.0.1:${port}/`);
   assert.equal(pageResponse.status, 200);
   assert.match(await pageResponse.text(), /Movie Room/);
+  assert.match(
+    pageResponse.headers.get("permissions-policy") || "",
+    /screen-wake-lock=\(self\)/,
+  );
 
   const moviesResponse = await fetch(`http://127.0.0.1:${port}/api/movies`);
   assert.equal(moviesResponse.status, 401);
@@ -78,6 +82,15 @@ test("preloads the selected movie for smoother in-page playback", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
   assert.match(html, /<video[\s\S]*preload="auto"[\s\S]*><\/video>/);
   assert.doesNotMatch(html, /preload="metadata"/);
+});
+
+test("exposes phone and TV playback controls", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+  assert.match(html, /id="cast-tv"/);
+  assert.match(html, /id="keep-awake"/);
+  assert.match(html, /id="fullscreen-player"/);
+  assert.match(html, /x-webkit-airplay="allow"/);
+  assert.match(html, /id="buffer-status"/);
 });
 
 test("logs in, lists nested local movies, resolves playback, and logs out", async (t) => {

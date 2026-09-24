@@ -8,19 +8,27 @@ function createApp({
   submitButton,
   player,
   status,
+  bufferStatus,
   loginStatus,
   librarySummary,
   folderShelf,
   movieGrid,
+  castButton,
+  keepAwakeButton,
+  fullscreenButton,
   authPanel,
   libraryPanel,
   fetchImpl,
   locationOrigin,
   createOption,
+  documentRef = typeof document !== "undefined" ? document : null,
+  navigatorRef = typeof navigator !== "undefined" ? navigator : null,
+  mediaMetadataCtor = typeof MediaMetadata !== "undefined" ? MediaMetadata : null,
   setTimeoutImpl = (callback, delay) => setTimeout(callback, delay),
   clearTimeoutImpl = (timer) => clearTimeout(timer),
   stallRecoveryMs = 12000,
   maxPlaybackRefreshes = 3,
+  targetBufferSeconds = 300,
 }) {
   let playbackRefreshInProgress = false;
   let playbackRefreshAttempts = 0;
@@ -33,6 +41,8 @@ function createApp({
   let allFolders = [];
   let activeFolder = "all";
   let searchTerm = "";
+  let wakeLock = null;
+  let keepAwakeWanted = true;
   const expectedLibraryCount = 16;
 
   function updateStatus(message) {
@@ -70,7 +80,175 @@ function createApp({
 
   function statusWithBuffer(message) {
     const seconds = Math.floor(bufferedSecondsAhead());
-    return seconds >= 2 ? `${message} ${seconds} seconds ready ahead.` : message;
+    updateBufferStatus();
+    if (seconds >= targetBufferSeconds) {
+      return `${message} 5 minutes ready ahead.`;
+    }
+    return seconds >= 2 ? `${message} ${formatBufferSeconds(seconds)} ready ahead.` : message;
+  }
+
+  function formatBufferSeconds(seconds) {
+    if (seconds >= 60) {
+      const minutes = Math.floor(seconds / 60);
+      const remainingSeconds = seconds % 60;
+      return remainingSeconds
+        ? `${minutes} min ${remainingSeconds} sec`
+        : `${minutes} min`;
+    }
+
+    return `${seconds} seconds`;
+  }
+
+  function updateBufferStatus() {
+    if (!bufferStatus) {
+      return;
+    }
+
+    const seconds = Math.floor(bufferedSecondsAhead());
+    const progress = Math.min(seconds / targetBufferSeconds, 1);
+    bufferStatus.textContent = seconds >= targetBufferSeconds
+      ? "Buffer target met: 5 minutes ready ahead."
+      : `Buffer target: ${formatBufferSeconds(seconds)} ready of 5 minutes.`;
+    if (bufferStatus.style) {
+      bufferStatus.style.setProperty("--buffer-progress", `${Math.round(progress * 100)}%`);
+    }
+  }
+
+  function selectedMovie() {
+    const movieId = movieSelect.value;
+    return allMovies.find((movie) => movie.id === movieId) || null;
+  }
+
+  function updateMediaSession(movie) {
+    if (!navigatorRef?.mediaSession || !mediaMetadataCtor || !movie) {
+      return;
+    }
+
+    try {
+      navigatorRef.mediaSession.metadata = new mediaMetadataCtor({
+        title: movie.title || movie.fileName || "Movie Room",
+        artist: movie.folder || "Movie Room",
+        album: "Movie Downloads",
+      });
+    } catch {
+      return;
+    }
+
+    const actions = {
+      play: () => player.play?.(),
+      pause: () => player.pause?.(),
+      seekbackward: () => {
+        player.currentTime = Math.max((Number(player.currentTime) || 0) - 10, 0);
+      },
+      seekforward: () => {
+        const currentTime = Number(player.currentTime) || 0;
+        player.currentTime = Number.isFinite(player.duration)
+          ? Math.min(currentTime + 30, Math.max(player.duration - 0.1, 0))
+          : currentTime + 30;
+      },
+    };
+
+    for (const [action, handler] of Object.entries(actions)) {
+      try {
+        navigatorRef.mediaSession.setActionHandler(action, handler);
+      } catch {
+        // Some browsers expose Media Session but not every action.
+      }
+    }
+  }
+
+  function updatePlaybackState(state) {
+    if (navigatorRef?.mediaSession) {
+      navigatorRef.mediaSession.playbackState = state;
+    }
+  }
+
+  function updateKeepAwakeButton(message = "") {
+    if (!keepAwakeButton) {
+      return;
+    }
+
+    if (!navigatorRef?.wakeLock?.request) {
+      keepAwakeButton.textContent = "Keep Awake Unavailable";
+      keepAwakeButton.disabled = true;
+      return;
+    }
+
+    keepAwakeButton.disabled = false;
+    keepAwakeButton.textContent = wakeLock
+      ? "Keep Awake On"
+      : "Keep Awake";
+
+    if (message) {
+      updateStatus(message);
+    }
+  }
+
+  async function requestWakeLock() {
+    if (!navigatorRef?.wakeLock?.request || wakeLock) {
+      updateKeepAwakeButton();
+      return false;
+    }
+
+    try {
+      wakeLock = await navigatorRef.wakeLock.request("screen");
+      wakeLock.addEventListener?.("release", () => {
+        wakeLock = null;
+        updateKeepAwakeButton();
+      });
+      updateKeepAwakeButton("Keep awake is on while this browser stays open.");
+      return true;
+    } catch {
+      updateKeepAwakeButton("Keep awake could not be started. Start playback, then tap Keep Awake again.");
+      return false;
+    }
+  }
+
+  async function releaseWakeLock() {
+    const lock = wakeLock;
+    wakeLock = null;
+    if (lock?.release) {
+      await lock.release().catch(() => {});
+    }
+    updateKeepAwakeButton();
+  }
+
+  function updateCastButton() {
+    if (!castButton) {
+      return;
+    }
+
+    castButton.disabled = false;
+    castButton.textContent = player.remote?.prompt ? "Cast / AirPlay" : "TV Help";
+  }
+
+  async function promptRemotePlayback() {
+    if (player.remote?.prompt) {
+      try {
+        await player.remote.prompt();
+        updateStatus("Choose your TV in the browser prompt, then keep this browser open as the controller.");
+        return;
+      } catch {
+        updateStatus("TV playback was not started. Use the browser's Cast or AirPlay icon if your phone shows one.");
+        return;
+      }
+    }
+
+    updateStatus("Use the Cast or AirPlay icon in your phone browser or video controls. This page allows remote playback when the browser supports it.");
+  }
+
+  async function openFullscreenPlayer() {
+    if (player.requestFullscreen) {
+      await player.requestFullscreen().catch(() => {});
+      return;
+    }
+
+    if (player.webkitEnterFullscreen) {
+      player.webkitEnterFullscreen();
+      return;
+    }
+
+    updateStatus("Fullscreen is not available in this browser.");
   }
 
   function updateLoginStatus(message) {
@@ -101,6 +279,15 @@ function createApp({
     }
     if (logoutButton) {
       logoutButton.disabled = !authenticated;
+    }
+    if (castButton) {
+      castButton.disabled = !authenticated;
+    }
+    if (keepAwakeButton) {
+      keepAwakeButton.disabled = !authenticated || !navigatorRef?.wakeLock?.request;
+    }
+    if (fullscreenButton) {
+      fullscreenButton.disabled = !authenticated;
     }
   }
 
@@ -478,6 +665,8 @@ function createApp({
       ? playback.url
       : new URL(playback.url, locationOrigin).toString();
     player.load();
+    updateMediaSession(selectedMovie());
+    updateBufferStatus();
     updateStatus("Loading video ahead for smooth playback…");
     return true;
   }
@@ -671,6 +860,8 @@ function createApp({
       searchInput.value = "";
     }
     renderLibrary();
+    await releaseWakeLock();
+    updatePlaybackState("none");
     player.removeAttribute("src");
     player.load();
     updateStatus("Signed out.");
@@ -715,6 +906,59 @@ function createApp({
       });
     }
 
+    if (castButton) {
+      castButton.addEventListener("click", () => {
+        promptRemotePlayback().catch((error) => {
+          updateStatus(error.message);
+        });
+      });
+    }
+
+    if (keepAwakeButton) {
+      keepAwakeButton.addEventListener("click", () => {
+        keepAwakeWanted = !wakeLock;
+        if (wakeLock) {
+          releaseWakeLock().catch(() => {});
+          updateStatus("Keep awake is off.");
+          return;
+        }
+
+        requestWakeLock().catch(() => {});
+      });
+    }
+
+    if (fullscreenButton) {
+      fullscreenButton.addEventListener("click", () => {
+        openFullscreenPlayer().catch((error) => {
+          updateStatus(error.message);
+        });
+      });
+    }
+
+    if (player.remote?.addEventListener) {
+      player.remote.addEventListener("connecting", () => {
+        updateStatus("Connecting to the TV...");
+      });
+      player.remote.addEventListener("connect", () => {
+        updateStatus("Playing on the TV. Keep this browser open as the controller.");
+      });
+      player.remote.addEventListener("disconnect", () => {
+        updateStatus("TV playback disconnected. Playback is still available on this page.");
+      });
+    }
+
+    if (documentRef?.addEventListener) {
+      documentRef.addEventListener("visibilitychange", () => {
+        if (documentRef.visibilityState === "visible" && keepAwakeWanted && !wakeLock && !player.paused) {
+          requestWakeLock().catch(() => {});
+        }
+      });
+    }
+
+    updateKeepAwakeButton();
+    updateCastButton();
+    updateBufferStatus();
+
     player.addEventListener("waiting", () => {
       scheduleStallRecovery("Loading more video while keeping your place…");
     });
@@ -733,6 +977,10 @@ function createApp({
 
     player.addEventListener("playing", () => {
       clearStallRecovery();
+      updatePlaybackState("playing");
+      if (keepAwakeWanted) {
+        requestWakeLock().catch(() => {});
+      }
       updateStatus(statusWithBuffer("Streaming now."));
     });
 
@@ -741,6 +989,8 @@ function createApp({
       if (secondsAhead >= 2) {
         clearStallRecovery();
         updateStatus(statusWithBuffer(player.paused ? "Ready to play." : "Streaming now."));
+      } else {
+        updateBufferStatus();
       }
     });
 
@@ -759,13 +1009,22 @@ function createApp({
         && Number.isFinite(player.currentTime)
         && player.currentTime >= stableRefreshPosition + 30
       ) {
-        playbackRefreshAttempts = 0;
-        stableRefreshPosition = null;
+          playbackRefreshAttempts = 0;
+          stableRefreshPosition = null;
       }
+
+      updateBufferStatus();
     });
 
-    player.addEventListener("pause", clearStallRecovery);
-    player.addEventListener("ended", clearStallRecovery);
+    player.addEventListener("pause", () => {
+      clearStallRecovery();
+      updatePlaybackState("paused");
+    });
+    player.addEventListener("ended", () => {
+      clearStallRecovery();
+      updatePlaybackState("none");
+      releaseWakeLock().catch(() => {});
+    });
 
     player.addEventListener("loadedmetadata", () => {
       if (!resumeAfterRefresh) {
@@ -856,10 +1115,14 @@ if (typeof document !== "undefined") {
     submitButton: document.getElementById("login-submit"),
     player: document.getElementById("player"),
     status: document.getElementById("status"),
+    bufferStatus: document.getElementById("buffer-status"),
     loginStatus: document.getElementById("login-status"),
     librarySummary: document.getElementById("library-summary"),
     folderShelf: document.getElementById("folder-shelf"),
     movieGrid: document.getElementById("movie-grid"),
+    castButton: document.getElementById("cast-tv"),
+    keepAwakeButton: document.getElementById("keep-awake"),
+    fullscreenButton: document.getElementById("fullscreen-player"),
     authPanel: document.getElementById("auth-panel"),
     libraryPanel: document.getElementById("library-panel"),
     fetchImpl: fetch,
