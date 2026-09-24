@@ -2,6 +2,7 @@ package com.movieroom.firetv;
 
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -39,6 +40,34 @@ public final class MovieRoomApi {
         JSONObject body = new JSONObject();
         body.put("movieId", movieId);
         return MovieRoomModels.Playback.fromJson(request("POST", "/api/tv/playback", deviceToken, body.toString()));
+    }
+
+    public byte[] downloadPoster(String posterUrl) throws Exception {
+        if (posterUrl == null || posterUrl.isEmpty()) {
+            return new byte[0];
+        }
+
+        URL url = posterUrl.startsWith("http://") || posterUrl.startsWith("https://")
+                ? new URL(posterUrl)
+                : new URL(baseUrl + posterUrl);
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+        connection.setReadTimeout(READ_TIMEOUT_MS);
+        connection.setRequestProperty("Accept", "image/avif,image/webp,image/jpeg,image/png,*/*");
+        int status = connection.getResponseCode();
+        if (status < 200 || status >= 300) {
+            return new byte[0];
+        }
+
+        try (InputStream input = connection.getInputStream();
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+            }
+            return output.toByteArray();
+        }
     }
 
     private String request(String method, String path, String bearerToken, String body) throws Exception {

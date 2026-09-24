@@ -10,6 +10,9 @@ A lightweight browser app for browsing and streaming a shared movie library behi
 - Google Cast device selection on Android and desktop Chrome using Google Home device names
 - Opaque, time-limited Cast playback tickets so TVs never receive the browser session cookie
 - Safari AirPlay support remains available for iPhone and iPad
+- YouTube-style responsive thumbnails, compact cleaned titles, and local Home, Family, and Guest viewer profiles
+- A prominent Full Screen action that disappears after the video enters full-screen mode
+- Fire TV playback sets the Android keep-screen-on flag until you return to the library, preventing the TV screensaver during a movie
 - Vercel-compatible request handling with durable KV-backed sessions, throttling, and token persistence
 
 ## Supported providers
@@ -74,6 +77,8 @@ Build a debug APK:
 
 The APK is created under `firetv/build/outputs/apk/debug/`.
 
+The TV stores its approved device token in encrypted private app storage, so normal app restarts and Fire TV reboots do not require another password or pairing code. The server accepts that device registration for up to one year. Choosing Unpair, clearing app data, uninstalling the app, or letting the registration expire requires pairing again.
+
 Pairing flow:
 
 1. Open the Fire TV app.
@@ -84,6 +89,14 @@ Pairing flow:
 6. Return to the Fire TV app and choose a movie.
 
 Private install requires Fire TV developer options and ADB approval on the TV. Do not put Movie Room passwords, OneDrive secrets, or Vercel secrets into the APK.
+
+To install or update the APK over the same Wi-Fi network, enable ADB debugging on the Fire TV, find its IP address under Network settings, approve the TV's ADB prompt, and run:
+
+```powershell
+.\scripts\install-firetv.ps1 -DeviceIp 192.168.1.50
+```
+
+This sideloads the private app; it does not replace or "flash" Fire OS firmware. The same APK can be installed on another Fire Stick by running the command with that device's IP address and pairing that installation once.
 
 ## Getting started
 
@@ -114,6 +127,8 @@ Use Node.js 22.9 or newer. `npm start` loads a local `.env` file when one exists
 
 - `npm start` — start the app locally
 - `npm test` — run the test suite
+
+The `npm run posters -- --site` command downloads artwork for titles currently listed by the live site when `APP_ORIGIN` and `MOVIE_PASSWORD` are available in the environment.
 
 ## Remaining owner setup
 

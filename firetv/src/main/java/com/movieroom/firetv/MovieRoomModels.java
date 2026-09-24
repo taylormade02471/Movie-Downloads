@@ -55,13 +55,15 @@ public final class MovieRoomModels {
         public final String title;
         public final String fileName;
         public final String folder;
+        public final String posterUrl;
         public final long size;
 
-        public Movie(String id, String title, String fileName, String folder, long size) {
+        public Movie(String id, String title, String fileName, String folder, String posterUrl, long size) {
             this.id = id;
             this.title = title;
             this.fileName = fileName;
             this.folder = folder;
+            this.posterUrl = posterUrl;
             this.size = size;
         }
 
@@ -89,6 +91,7 @@ public final class MovieRoomModels {
                             movie.optString("title", movie.optString("fileName", "Untitled")),
                             movie.optString("fileName", ""),
                             movie.optString("folder", ""),
+                            movie.optString("posterUrl", ""),
                             movie.optLong("size", 0L)));
                 }
             }

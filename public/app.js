@@ -7,8 +7,11 @@ function createApp({
   passwordInput,
   submitButton,
   player,
+  playerFrame,
   status,
   bufferStatus,
+  nowPlayingTitle,
+  nowPlayingDetail,
   loginStatus,
   librarySummary,
   folderShelf,
@@ -29,6 +32,11 @@ function createApp({
   fireTvPairingForm,
   fireTvCodeInput,
   fireTvPairingStatus,
+  profileToggle,
+  profileMenu,
+  profileLabel,
+  profileAvatar,
+  profileButtons = [],
   fetchImpl,
   locationOrigin,
   createOption,
@@ -60,11 +68,86 @@ function createApp({
   let googleCastContext = null;
   let googleCastReady = false;
   let authenticated = false;
+  let activeProfile = "home";
   const expectedLibraryCount = 16;
   const permissionStorageKey = "movie_room_permissions_v1";
+  const profileStorageKey = "movie_room_viewer_profile_v1";
+  const profileLastMoviePrefix = "movie_room_last_movie_v1_";
+  const viewerProfiles = {
+    home: { label: "Home", initial: "H" },
+    family: { label: "Family", initial: "F" },
+    guest: { label: "Guest", initial: "G" },
+  };
 
   function hasMethod(value, methodName) {
     return Boolean(value && typeof value[methodName] === "function");
+  }
+
+  function readLocalValue(key) {
+    try {
+      return localStorageRef && hasMethod(localStorageRef, "getItem")
+        ? localStorageRef.getItem(key)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeLocalValue(key, value) {
+    try {
+      if (localStorageRef && hasMethod(localStorageRef, "setItem")) {
+        localStorageRef.setItem(key, value);
+      }
+    } catch {
+      // Private browsing can disable local storage. Profiles still work for this page view.
+    }
+  }
+
+  function updateProfileUi() {
+    const profile = viewerProfiles[activeProfile] || viewerProfiles.home;
+    if (profileLabel) {
+      profileLabel.textContent = profile.label;
+    }
+    if (profileAvatar) {
+      profileAvatar.textContent = profile.initial;
+    }
+    for (const button of profileButtons) {
+      const selected = button.dataset && button.dataset.viewerProfile === activeProfile;
+      if (button.classList && typeof button.classList.toggle === "function") {
+        button.classList.toggle("active", selected);
+      }
+      if (typeof button.setAttribute === "function") {
+        button.setAttribute("aria-checked", selected ? "true" : "false");
+      }
+    }
+  }
+
+  function storedMovieForProfile() {
+    return readLocalValue(`${profileLastMoviePrefix}${activeProfile}`) || "";
+  }
+
+  function rememberMovieForProfile(movieId) {
+    if (movieId) {
+      writeLocalValue(`${profileLastMoviePrefix}${activeProfile}`, movieId);
+    }
+  }
+
+  function setViewerProfile(profileId) {
+    activeProfile = Object.prototype.hasOwnProperty.call(viewerProfiles, profileId)
+      ? profileId
+      : "home";
+    writeLocalValue(profileStorageKey, activeProfile);
+    if (profileMenu) {
+      profileMenu.hidden = true;
+    }
+    if (profileToggle && typeof profileToggle.setAttribute === "function") {
+      profileToggle.setAttribute("aria-expanded", "false");
+    }
+    updateProfileUi();
+  }
+
+  function initializeViewerProfile() {
+    setViewerProfile(readLocalValue(profileStorageKey) || "home");
   }
 
   function updateStatus(message) {
@@ -149,7 +232,7 @@ function createApp({
     try {
       navigatorRef.mediaSession.metadata = new mediaMetadataCtor({
         title: movie.title || movie.fileName || "Movie Room",
-        artist: movie.folder || "Movie Room",
+        artist: movieFolderLabel(movie),
         album: "Movie Downloads",
       });
     } catch {
@@ -404,7 +487,7 @@ function createApp({
     if (mediaApi.GenericMediaMetadata) {
       const metadata = new mediaApi.GenericMediaMetadata();
       metadata.title = playback.title || movie.title || movie.fileName || "Movie Room";
-      metadata.subtitle = movie.folder || "Movie Room";
+      metadata.subtitle = movieFolderLabel(movie);
       mediaInfo.metadata = metadata;
     }
 
@@ -559,8 +642,9 @@ function createApp({
   }
 
   async function openFullscreenPlayer() {
-    if (player.requestFullscreen) {
-      await player.requestFullscreen().catch(() => {});
+    const fullscreenTarget = playerFrame || player;
+    if (fullscreenTarget && fullscreenTarget.requestFullscreen) {
+      await fullscreenTarget.requestFullscreen().catch(() => {});
       return;
     }
 
@@ -695,6 +779,9 @@ function createApp({
     if (pairFireTvButton) {
       pairFireTvButton.disabled = !authenticated;
     }
+    if (profileToggle) {
+      profileToggle.disabled = !authenticated;
+    }
   }
 
   function setAuthUnavailable(unavailable) {
@@ -714,13 +801,12 @@ function createApp({
 
   function movieLabel(movie) {
     const size = Number(movie.size) || 0;
-    const folderLabel = movie.folder ? ` — ${movie.folder}` : "";
     if (size <= 0) {
-      return `${movie.title}${folderLabel} (still uploading)`;
+      return `${movie.title} (still uploading)`;
     }
 
     const sizeInGb = (size / (1024 ** 3)).toFixed(2);
-    return `${movie.title}${folderLabel} (${sizeInGb} GB)`;
+    return `${movie.title} (${sizeInGb} GB)`;
   }
 
   function movieSizeLabel(size) {
@@ -738,6 +824,70 @@ function createApp({
     }
 
     return `${numericSize} bytes`;
+  }
+
+  function movieInitials(movie) {
+    const title = movie.title || movie.fileName || "Movie";
+    const words = title.split(/\s+/).filter(Boolean);
+    return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "M";
+  }
+
+  function posterAltText(movie) {
+    return `${movie.title || movie.fileName || "Movie"} cover`;
+  }
+
+  function displayFolderLabel(folder) {
+    const parts = String(folder || "").split(/[\\/]/).filter(Boolean);
+    const leaf = parts.length ? parts[parts.length - 1] : "";
+    if (!leaf) {
+      return "Main Folder";
+    }
+
+    let cleaned = leaf
+      .replace(/\[[^\]]*]/g, " ")
+      .replace(/\([^)]*(?:19|20)\d{2}[^)]*\)/gi, " ")
+      .replace(/[._-]+/g, " ")
+      .replace(/\s*[[(]?\b(?:19|20)\d{2}\b.*$/i, " ")
+      .replace(/\s+\b(?:480p|576p|720p|1080p|2160p|4k|web\s*dl|webrip|bluray|x264|x265|h264|h265|hevc|aac)\b.*$/i, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (/^home alone 1,?\s*2,?\s*3,?\s*4,?\s*5/i.test(cleaned)) {
+      cleaned = "Home Alone Collection";
+    }
+    if (!cleaned) {
+      return "Movie library";
+    }
+    return cleaned.length > 36 ? `${cleaned.slice(0, 33).trim()}…` : cleaned;
+  }
+
+  function movieFolderLabel(movie) {
+    const folderLabel = displayFolderLabel(movie && movie.folder);
+    const title = String((movie && (movie.title || movie.fileName)) || "").toLowerCase();
+    return folderLabel.toLowerCase() === title ? "Movie Room" : folderLabel;
+  }
+
+  function updateNowPlaying(movie, playback = null) {
+    if (!movie) {
+      if (nowPlayingTitle) {
+        nowPlayingTitle.textContent = "Choose a movie";
+      }
+      if (nowPlayingDetail) {
+        nowPlayingDetail.textContent = "Select a thumbnail below to start streaming.";
+      }
+      return;
+    }
+
+    if (nowPlayingTitle) {
+      nowPlayingTitle.textContent = movie.title || movie.fileName || "Untitled movie";
+    }
+    if (nowPlayingDetail) {
+      const details = [movieFolderLabel(movie), movieSizeLabel(movie.size)];
+      if (playback && playback.contentType) {
+        details.push(playback.contentType.replace(/^video\//, "").toUpperCase());
+      }
+      nowPlayingDetail.textContent = details.join(" • ");
+    }
   }
 
   function normalizeLibraryPayload(payload) {
@@ -819,7 +969,9 @@ function createApp({
     const uploadingCount = foundCount - playableCount;
     const waitingCount = Math.max(expectedLibraryCount - foundCount, 0);
     const parts = [
-      `${foundCount} of ${expectedLibraryCount} files found`,
+      foundCount >= expectedLibraryCount
+        ? `${foundCount} files found`
+        : `${foundCount} of ${expectedLibraryCount} files found`,
       `${playableCount} ready`,
     ];
 
@@ -862,7 +1014,7 @@ function createApp({
 
     for (const folder of folders) {
       buttons.push(createFolderButton(
-        folder.name,
+        displayFolderLabel(folder.name),
         folder.path,
         folder.movieCount || 0,
         folder.hidden ? "hidden" : "",
@@ -898,7 +1050,25 @@ function createApp({
 
       const poster = documentRef.createElement("span");
       poster.className = "poster";
-      poster.textContent = (movie.extension || movie.fileName || "video").replace(".", "").slice(0, 4).toUpperCase();
+      const fallback = documentRef.createElement("span");
+      fallback.className = "poster-fallback";
+      const initials = documentRef.createElement("strong");
+      initials.textContent = movieInitials(movie);
+      const fallbackTitle = documentRef.createElement("span");
+      fallbackTitle.textContent = movie.title || movie.fileName || "Movie";
+      fallback.append(initials, fallbackTitle);
+      poster.append(fallback);
+      if (movie.posterUrl) {
+        const image = documentRef.createElement("img");
+        image.alt = posterAltText(movie);
+        image.loading = "lazy";
+        image.decoding = "async";
+        image.src = movie.posterUrl;
+        image.addEventListener("error", () => {
+          image.remove();
+        }, { once: true });
+        poster.prepend(image);
+      }
 
       const title = documentRef.createElement("span");
       title.className = "movie-title";
@@ -906,19 +1076,25 @@ function createApp({
 
       const meta = documentRef.createElement("span");
       meta.className = "movie-meta";
-      meta.textContent = [movie.folder || "Main Folder", movieSizeLabel(movie.size)].join(" / ");
+      meta.textContent = [movieFolderLabel(movie), movieSizeLabel(movie.size)].join(" • ");
 
       const badge = documentRef.createElement("span");
       badge.className = ready ? "ready-badge" : "upload-badge";
       badge.textContent = ready ? "Ready" : "Still uploading";
 
-      button.append(poster, title, meta, badge);
+      const info = documentRef.createElement("span");
+      info.className = "movie-info";
+      info.append(title, meta, badge);
+
+      button.append(poster, info);
       button.addEventListener("click", () => {
         if (!ready) {
           return;
         }
 
         movieSelect.value = movie.id;
+        rememberMovieForProfile(movie.id);
+        updateNowPlaying(movie);
         playSelectedMovie().catch((error) => {
           updateStatus(error.message);
         });
@@ -984,6 +1160,7 @@ function createApp({
       movieSelect.disabled = true;
       player.removeAttribute("src");
       player.load();
+      updateNowPlaying(null);
       updateStatus("No movie files found yet. When the files finish showing up in the Downloads folder, they will appear here.");
       return [];
     }
@@ -1005,16 +1182,19 @@ function createApp({
       movieSelect.disabled = true;
       player.removeAttribute("src");
       player.load();
+      updateNowPlaying(null);
       updateStatus("Movie files are listed, but they are still uploading to OneDrive.");
       return [];
     }
 
     const playableIds = new Set(playableMovies.map((movie) => movie.id));
-    movieSelect.value = selectedMovieId && playableIds.has(selectedMovieId)
-      ? selectedMovieId
+    const preferredMovieId = selectedMovieId || storedMovieForProfile();
+    movieSelect.value = preferredMovieId && playableIds.has(preferredMovieId)
+      ? preferredMovieId
       : playableMovies[0].id;
 
     movieSelect.disabled = false;
+    updateNowPlaying(selectedMovie());
     updateStatus("Library ready. Loading the selected movie for smooth playback.");
     renderLibrary();
     return playableMovies;
@@ -1071,6 +1251,8 @@ function createApp({
       ? playback.url
       : new URL(playback.url, locationOrigin).toString();
     player.load();
+    rememberMovieForProfile(movieId);
+    updateNowPlaying(selectedMovie(), playback);
     updateMediaSession(selectedMovie());
     updateBufferStatus();
     updateStatus("Loading video ahead for smooth playback…");
@@ -1270,6 +1452,7 @@ function createApp({
     updatePlaybackState("none");
     player.removeAttribute("src");
     player.load();
+    updateNowPlaying(null);
     updateStatus("Signed out.");
   }
 
@@ -1313,7 +1496,11 @@ function createApp({
   }
 
   function initialize() {
+    initializeViewerProfile();
+
     movieSelect.addEventListener("change", () => {
+      rememberMovieForProfile(movieSelect.value);
+      updateNowPlaying(selectedMovie());
       playSelectedMovie().catch((error) => {
         updateStatus(error.message);
       });
@@ -1348,6 +1535,34 @@ function createApp({
       searchInput.addEventListener("input", () => {
         searchTerm = searchInput.value.trim().toLowerCase();
         renderMovieGrid();
+      });
+    }
+
+    if (profileToggle && profileMenu) {
+      profileToggle.addEventListener("click", () => {
+        profileMenu.hidden = !profileMenu.hidden;
+        if (typeof profileToggle.setAttribute === "function") {
+          profileToggle.setAttribute("aria-expanded", profileMenu.hidden ? "false" : "true");
+        }
+      });
+    }
+
+    for (const button of profileButtons) {
+      button.addEventListener("click", () => {
+        const profileId = button.dataset ? button.dataset.viewerProfile : "home";
+        setViewerProfile(profileId);
+        if (!allMovies.length) {
+          return;
+        }
+        const rememberedMovieId = storedMovieForProfile();
+        const rememberedMovie = allMovies.find((movie) => movie.id === rememberedMovieId && (Number(movie.size) || 0) > 0);
+        const fallbackMovie = allMovies.find((movie) => (Number(movie.size) || 0) > 0);
+        const nextMovie = rememberedMovie || fallbackMovie;
+        if (nextMovie) {
+          movieSelect.value = nextMovie.id;
+          updateNowPlaying(nextMovie);
+          playSelectedMovie().catch((error) => updateStatus(error.message));
+        }
       });
     }
 
@@ -1594,8 +1809,11 @@ if (typeof document !== "undefined") {
     passwordInput: document.getElementById("password"),
     submitButton: document.getElementById("login-submit"),
     player: document.getElementById("player"),
+    playerFrame: document.querySelector(".player-frame"),
     status: document.getElementById("status"),
     bufferStatus: document.getElementById("buffer-status"),
+    nowPlayingTitle: document.getElementById("now-playing-title"),
+    nowPlayingDetail: document.getElementById("now-playing-detail"),
     loginStatus: document.getElementById("login-status"),
     librarySummary: document.getElementById("library-summary"),
     folderShelf: document.getElementById("folder-shelf"),
@@ -1616,6 +1834,11 @@ if (typeof document !== "undefined") {
     fireTvPairingForm: document.getElementById("fire-tv-pairing-form"),
     fireTvCodeInput: document.getElementById("fire-tv-code"),
     fireTvPairingStatus: document.getElementById("fire-tv-pairing-status"),
+    profileToggle: document.getElementById("profile-toggle"),
+    profileMenu: document.getElementById("profile-menu"),
+    profileLabel: document.getElementById("profile-label"),
+    profileAvatar: document.getElementById("profile-avatar"),
+    profileButtons: Array.from(document.querySelectorAll("[data-viewer-profile]")),
     fetchImpl: fetch,
     locationOrigin: window.location.origin,
     createOption: () => document.createElement("option"),

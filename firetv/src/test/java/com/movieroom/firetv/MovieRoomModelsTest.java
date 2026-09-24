@@ -20,11 +20,12 @@ public class MovieRoomModelsTest {
     @Test
     public void parsesLibraryAndMarksStillUploadingMovieNotPlayable() throws Exception {
         MovieRoomModels.Library library = MovieRoomModels.Library.fromJson(
-                "{\"movies\":[{\"id\":\"movie-1\",\"title\":\"Ready\",\"fileName\":\"Ready.mp4\",\"size\":10}," +
+                "{\"movies\":[{\"id\":\"movie-1\",\"title\":\"Ready\",\"fileName\":\"Ready.mp4\",\"posterUrl\":\"/posters/ready.jpg\",\"size\":10}," +
                         "{\"id\":\"movie-2\",\"title\":\"Uploading\",\"fileName\":\"Uploading.mp4\",\"size\":0}],\"folders\":[]}");
 
         assertEquals(2, library.movies.size());
         assertTrue(library.movies.get(0).isPlayable());
+        assertEquals("/posters/ready.jpg", library.movies.get(0).posterUrl);
         assertFalse(library.movies.get(1).isPlayable());
     }
 

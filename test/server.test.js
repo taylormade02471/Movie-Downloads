@@ -8,6 +8,7 @@ const { createServer } = require("../server");
 const { createApp } = require("../public/app");
 const { MemoryStore } = require("../lib/store");
 const { createOneDriveProvider } = require("../lib/providers/onedrive");
+const { movieTitleFromName, posterUrlFromTitle } = require("../lib/media");
 
 function createTempLibrary() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "movie-room-"));
@@ -86,6 +87,20 @@ async function pairFireTv(port, label = "Test Fire TV") {
   return approved.deviceToken;
 }
 
+test("cleans movie file names and derives poster URLs", () => {
+  assert.equal(movieTitleFromName("Family.Movie.1080p.WEB-DL.x264.AAC.mp4"), "Family Movie");
+  assert.equal(movieTitleFromName("ACME-Night_4K_BluRay_HEVC.mkv"), "ACME Night");
+  assert.equal(
+    movieTitleFromName("01 Home Alone 1   Family Comedy 1990 Eng Subs [H246 mp4].mp4"),
+    "Home Alone 1",
+  );
+  assert.equal(
+    movieTitleFromName("Coyote.vs.Acme.2026.1080p.HEVC.x265.RMTeam.mkv"),
+    "Coyote vs Acme",
+  );
+  assert.equal(posterUrlFromTitle("ACME Night"), "/posters/acme-night.jpg");
+});
+
 test("serves the watch page and protects the movie catalog", async (t) => {
   const { root, moviesDir, publicDir } = createTempLibrary();
   fs.writeFileSync(path.join(moviesDir, "Family-Night.mp4"), "abcdef");
@@ -126,6 +141,10 @@ test("exposes phone and TV playback controls", () => {
   assert.match(html, /Pair Fire TV/);
   assert.match(html, /id="keep-awake"/);
   assert.match(html, /id="fullscreen-player"/);
+  assert.match(html, /player-frame:fullscreen \.fullscreen-overlay/);
+  assert.match(html, /id="profile-toggle"/);
+  assert.match(html, /data-viewer-profile="family"/);
+  assert.match(html, /data-viewer-profile="guest"/);
   assert.match(html, /x-webkit-airplay="allow"/);
   assert.match(html, /webkit-playsinline/);
   assert.match(html, /id="buffer-status"/);
@@ -188,6 +207,7 @@ test("logs in, lists nested local movies, resolves playback, and logs out", asyn
   const movies = await moviesResponse.json();
   assert.equal(movies[0].title, "Family Night");
   assert.equal(movies[0].folder, "Collections");
+  assert.equal(movies[0].posterUrl, "/posters/family-night.jpg");
 
   const playbackResponse = await fetch(`http://127.0.0.1:${port}/api/playback/${encodeURIComponent(movies[0].id)}`, {
     headers: { Cookie: sessionCookie },
@@ -2109,10 +2129,10 @@ test("recursively lists OneDrive items and resolves fresh playback links", async
 
   const movies = await provider.listMovies();
   assert.deepEqual(
-    movies.map((movie) => ({ title: movie.title, folder: movie.folder })),
+    movies.map((movie) => ({ title: movie.title, folder: movie.folder, posterUrl: movie.posterUrl })),
     [
-      { title: "Movie One", folder: "" },
-      { title: "Movie Two", folder: "Collections" },
+      { title: "Movie One", folder: "", posterUrl: "/posters/movie-one.jpg" },
+      { title: "Movie Two", folder: "Collections", posterUrl: "/posters/movie-two.jpg" },
     ],
   );
 
