@@ -54,6 +54,38 @@ async function login(port, password = "lowercase", headers = {}) {
   });
 }
 
+async function pairFireTv(port, label = "Test Fire TV") {
+  const origin = `http://127.0.0.1:${port}`;
+  const pollSecret = `poll-secret-${Math.random()}`;
+  const createResponse = await fetch(`${origin}/api/tv/pairings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceLabel: label, pollSecret }),
+  });
+  assert.equal(createResponse.status, 201);
+  const created = await createResponse.json();
+
+  const authResponse = await login(port);
+  const approveResponse = await fetch(`${origin}/api/tv/pairings/approve`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: authResponse.headers.get("set-cookie"),
+      Origin: origin,
+    },
+    body: JSON.stringify({ code: created.code }),
+  });
+  assert.equal(approveResponse.status, 200);
+
+  const pollResponse = await fetch(`${origin}/api/tv/pairings/${created.pairingId}`, {
+    headers: { Authorization: `Bearer ${pollSecret}` },
+  });
+  assert.equal(pollResponse.status, 200);
+  const approved = await pollResponse.json();
+  assert.ok(approved.deviceToken);
+  return approved.deviceToken;
+}
+
 test("serves the watch page and protects the movie catalog", async (t) => {
   const { root, moviesDir, publicDir } = createTempLibrary();
   fs.writeFileSync(path.join(moviesDir, "Family-Night.mp4"), "abcdef");
@@ -454,6 +486,115 @@ test("requires a signed-in same-origin browser to approve a Fire TV", async (t) 
     body: JSON.stringify({ code: created.code }),
   });
   assert.equal(crossSiteResponse.status, 403);
+});
+
+test("paired Fire TV lists the library and receives a cookie-free playback ticket", async (t) => {
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  fs.writeFileSync(path.join(moviesDir, "Family-Night.mp4"), "abcdef");
+  fs.writeFileSync(path.join(moviesDir, "Still-Uploading.mp4"), "");
+  const server = await startServer(createAuthOptions({ moviesDir, publicDir }));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const origin = `http://127.0.0.1:${port}`;
+  const deviceToken = await pairFireTv(port);
+
+  const anonymousLibraryResponse = await fetch(`${origin}/api/tv/library`);
+  assert.equal(anonymousLibraryResponse.status, 401);
+
+  const libraryResponse = await fetch(`${origin}/api/tv/library`, {
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  });
+  assert.equal(libraryResponse.status, 200);
+  const library = await libraryResponse.json();
+  assert.equal(library.movies.length, 2);
+  const playable = library.movies.find((movie) => movie.fileName === "Family-Night.mp4");
+  const uploading = library.movies.find((movie) => movie.fileName === "Still-Uploading.mp4");
+  assert.ok(playable.id);
+  assert.equal(uploading.size, 0);
+
+  const uploadingPlaybackResponse = await fetch(`${origin}/api/tv/playback`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${deviceToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ movieId: uploading.id }),
+  });
+  assert.equal(uploadingPlaybackResponse.status, 409);
+
+  const playbackResponse = await fetch(`${origin}/api/tv/playback`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${deviceToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ movieId: playable.id }),
+  });
+  assert.equal(playbackResponse.status, 200);
+  const playback = await playbackResponse.json();
+  assert.match(playback.url, new RegExp(`^${origin.replaceAll(".", "\\.")}/api/cast/stream\\?ticket=`));
+  assert.equal(playback.contentType, "video/mp4");
+  assert.equal(playback.title, "Family Night");
+
+  const ticketResponse = await fetch(playback.url, { headers: { Range: "bytes=0-2" } });
+  assert.equal(ticketResponse.status, 206);
+  assert.equal(await ticketResponse.text(), "abc");
+});
+
+test("paired Fire TV playback redirects OneDrive movies through a secure ticket", async (t) => {
+  const { root, publicDir } = createTempLibrary();
+  const provider = {
+    kind: "onedrive",
+    async listMovies() {
+      return [{
+        id: "movie-1",
+        fileName: "OneDrive-Movie.mp4",
+        title: "OneDrive Movie",
+        size: 1024,
+      }];
+    },
+    async listLibrary() {
+      return {
+        movies: await this.listMovies(),
+        folders: [],
+      };
+    },
+    async resolvePlayback(movieId) {
+      assert.equal(movieId, "movie-1");
+      return {
+        url: "https://onedrive.example/download/movie.mp4",
+        contentType: "video/mp4",
+      };
+    },
+  };
+  const server = await startServer(createAuthOptions({ publicDir, provider }));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const origin = `http://127.0.0.1:${port}`;
+  const deviceToken = await pairFireTv(port);
+  const playbackResponse = await fetch(`${origin}/api/tv/playback`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${deviceToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ movieId: "movie-1" }),
+  });
+  assert.equal(playbackResponse.status, 200);
+  const playback = await playbackResponse.json();
+  const streamResponse = await fetch(playback.url, { redirect: "manual" });
+  assert.equal(streamResponse.status, 307);
+  assert.equal(streamResponse.headers.get("location"), "https://onedrive.example/download/movie.mp4");
 });
 
 test("redirects a valid Cast ticket to a fresh OneDrive playback URL", async (t) => {

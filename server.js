@@ -189,6 +189,10 @@ function readBearerToken(request) {
   return match ? match[1].trim() : "";
 }
 
+async function authenticateTvRequest(context, request) {
+  return context.tvDeviceManager.authenticateDevice(readBearerToken(request));
+}
+
 function getClientAddress(request, trustProxy = false) {
   const forwarded = request.headers["x-forwarded-for"];
   if (trustProxy && typeof forwarded === "string" && forwarded.length) {
@@ -979,6 +983,39 @@ function createRequestHandler(options = {}) {
           pollSecret: readBearerToken(request),
         });
         await sendJson(response, 200, polled, noStoreHeaders());
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/tv/library") {
+        await authenticateTvRequest(context, request);
+        const library = typeof context.provider.listLibrary === "function"
+          ? await context.provider.listLibrary()
+          : { movies: await context.provider.listMovies(), folders: [] };
+        await sendJson(response, 200, library, noStoreHeaders());
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/tv/playback") {
+        const device = await authenticateTvRequest(context, request);
+        const body = await readJsonBody(request, context.authConfig.bodyLimit);
+        const movieId = typeof body.movieId === "string" ? body.movieId : "";
+
+        if (!movieId) {
+          throw new HttpError(400, "A movie id is required.");
+        }
+
+        const tvPlayback = await context.castPlaybackManager.create(movieId, device.expiresAt);
+        const ticketUrl = new URL(
+          "/api/cast/stream",
+          context.appOrigin || getOrigin(request, context.trustProxy),
+        );
+        ticketUrl.searchParams.set("ticket", tvPlayback.ticket);
+        await sendJson(response, 200, {
+          url: ticketUrl.toString(),
+          contentType: tvPlayback.contentType,
+          title: tvPlayback.title,
+          expiresAt: tvPlayback.expiresAt,
+        }, noStoreHeaders());
         return;
       }
 
