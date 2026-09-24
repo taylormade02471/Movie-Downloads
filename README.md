@@ -53,7 +53,7 @@ Copy `.env.example` to a local `.env` file or configure the same values in Verce
 - `KV_REST_API_URL`
 - `KV_REST_API_TOKEN`
 
-Set `ONEDRIVE_PUBLIC_CLIENT=true` only when your Microsoft app registration is configured as a public client and does not require a client secret for refresh-token exchange.
+Set `ONEDRIVE_PUBLIC_CLIENT=true` only when your Microsoft app registration is configured as a public client and does not require a client secret for refresh-token exchange. `ONEDRIVE_REDIRECT_URI` is used to match the Microsoft app registration during refresh-token exchange; this app does not implement an in-repo OAuth callback flow yet.
 
 The app never exposes the shared password, session secret, or OneDrive credentials to the browser.
 

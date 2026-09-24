@@ -149,14 +149,18 @@ function createApp({
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
       updateLoginStatus(payload?.error || "Unable to sign in.");
+      setAuthenticated(false);
       passwordInput.select();
       return;
     }
 
     passwordInput.value = "";
     updateLoginStatus("");
+    const movies = await loadLibrary();
     setAuthenticated(true);
-    await loadLibrary();
+    if (!movies.length) {
+      updateStatus("No movies found yet. Add supported video files to the active movie provider.");
+    }
   }
 
   async function handleLogout() {

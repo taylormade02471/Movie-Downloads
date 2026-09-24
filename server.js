@@ -42,14 +42,18 @@ function noStoreHeaders(extraHeaders = {}) {
   };
 }
 
-function getOrigin(request) {
-  const protocol = (request.headers["x-forwarded-proto"] || "").split(",")[0].trim()
-    || (request.socket.encrypted ? "https" : "http");
+function getOrigin(request, trustProxy = false) {
+  const forwardedProtocol = trustProxy
+    ? (request.headers["x-forwarded-proto"] || "").split(",")[0].trim()
+    : "";
+  const protocol = forwardedProtocol || (request.socket.encrypted ? "https" : "http");
   return `${protocol}://${request.headers.host || "localhost"}`;
 }
 
-function isSecureRequest(request) {
-  const forwardedProtocol = (request.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+function isSecureRequest(request, trustProxy = false) {
+  const forwardedProtocol = trustProxy
+    ? (request.headers["x-forwarded-proto"] || "").split(",")[0].trim()
+    : "";
   return forwardedProtocol === "https" || Boolean(request.socket.encrypted);
 }
 
@@ -179,9 +183,9 @@ async function readJsonBody(request, limit = DEFAULT_BODY_LIMIT) {
   }
 }
 
-function ensureSameOrigin(request, expectedOrigin = "") {
+function ensureSameOrigin(request, expectedOrigin = "", trustProxy = false) {
   const origin = request.headers.origin;
-  const allowedOrigin = expectedOrigin || getOrigin(request);
+  const allowedOrigin = expectedOrigin || getOrigin(request, trustProxy);
 
   if (origin && origin !== allowedOrigin) {
     throw new HttpError(403, "Cross-site requests are not allowed.");
@@ -336,7 +340,7 @@ function buildAuthConfig(options = {}) {
   };
 }
 
-function createSessionManager(store, authConfig, now = Date.now) {
+function createSessionManager(store, authConfig, now = Date.now, trustProxy = false) {
   const prefix = "session:";
   const ttlSeconds = Math.ceil(authConfig.sessionTtlMs / 1000);
 
@@ -367,21 +371,21 @@ function createSessionManager(store, authConfig, now = Date.now) {
         }
 
         throw new HttpError(401, "Sign in is required.", {
-          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request)) },
+          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request, trustProxy)) },
         });
       }
 
       const sessionId = decodeSignedValue(rawCookie, authConfig.sessionSecret);
       if (!sessionId) {
         throw new HttpError(401, "Session is invalid.", {
-          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request)) },
+          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request, trustProxy)) },
         });
       }
 
       const sessionJson = await store.get(`${prefix}${sessionId}`);
       if (!sessionJson) {
         throw new HttpError(401, "Session expired.", {
-          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request)) },
+          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request, trustProxy)) },
         });
       }
 
@@ -391,23 +395,27 @@ function createSessionManager(store, authConfig, now = Date.now) {
       } catch {
         await store.delete(`${prefix}${sessionId}`);
         throw new HttpError(401, "Session expired.", {
-          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request)) },
+          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request, trustProxy)) },
         });
       }
 
       if (!session.expiresAt || session.expiresAt <= now()) {
         await store.delete(`${prefix}${sessionId}`);
         throw new HttpError(401, "Session expired.", {
-          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request)) },
+          headers: { "Set-Cookie": buildClearedSessionCookie(isSecureRequest(request, trustProxy)) },
         });
       }
 
       return { sessionId, expiresAt: session.expiresAt };
     },
     async destroy(request) {
+      const secure = isSecureRequest(request, trustProxy);
+      if (!this.isConfigured()) {
+        return buildClearedSessionCookie(secure);
+      }
+
       const cookies = parseCookies(request.headers.cookie);
       const rawCookie = cookies[SESSION_COOKIE_NAME];
-      const secure = isSecureRequest(request);
 
       if (!rawCookie) {
         return buildClearedSessionCookie(secure);
@@ -502,8 +510,9 @@ function createAppContext(options = {}) {
     authConfig,
     provider,
     publicDir: path.resolve(options.publicDir || path.join(__dirname, "public")),
-    sessionManager: createSessionManager(store, authConfig, now),
+    sessionManager: createSessionManager(store, authConfig, now, trustProxy),
     rateLimiter: createRateLimiter(store, authConfig, now, trustProxy),
+    trustProxy,
   };
 }
 
@@ -512,10 +521,10 @@ function createRequestHandler(options = {}) {
 
   return async function handleRequest(request, response) {
     try {
-      const url = new URL(request.url, getOrigin(request));
+      const url = new URL(request.url, getOrigin(request, context.trustProxy));
 
       if (request.method === "POST" && url.pathname === "/api/login") {
-        ensureSameOrigin(request, context.appOrigin);
+        ensureSameOrigin(request, context.appOrigin, context.trustProxy);
         if (!context.sessionManager.isConfigured()) {
           throw new HttpError(503, "Authentication is not configured.");
         }
@@ -530,13 +539,13 @@ function createRequestHandler(options = {}) {
         }
 
         await context.rateLimiter.clear(request);
-        const cookie = await context.sessionManager.create(isSecureRequest(request));
+        const cookie = await context.sessionManager.create(isSecureRequest(request, context.trustProxy));
         sendEmpty(response, 204, noStoreHeaders({ "Set-Cookie": cookie }));
         return;
       }
 
       if (request.method === "POST" && url.pathname === "/api/logout") {
-        ensureSameOrigin(request, context.appOrigin);
+        ensureSameOrigin(request, context.appOrigin, context.trustProxy);
         const cookie = await context.sessionManager.destroy(request);
         sendEmpty(response, 204, noStoreHeaders({ "Set-Cookie": cookie }));
         return;
