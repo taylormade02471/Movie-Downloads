@@ -128,7 +128,9 @@ function createApp({
     );
     const playback = await response.json();
 
-    player.src = new URL(playback.url, locationOrigin).toString();
+    player.src = /^https?:\/\//i.test(playback.url)
+      ? playback.url
+      : new URL(playback.url, locationOrigin).toString();
     player.load();
     updateStatus("Connecting to stream and buffering playback…");
   }

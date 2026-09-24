@@ -31,7 +31,7 @@ Use this for Vercel hosting after you have:
 1. A Microsoft app registration with delegated read access for the target OneDrive account
 2. A refresh token for that app/account
 3. The target `driveId` and root folder `itemId`
-4. KV REST credentials so sessions, login throttling, and rotated refresh tokens can persist across serverless instances
+4. Optional KV REST credentials if you want sessions, login throttling, and rotated refresh tokens to persist across serverless instances instead of using in-memory fallbacks
 
 Copy `.env.example` to a local `.env` file or configure the same values in Vercel:
 
