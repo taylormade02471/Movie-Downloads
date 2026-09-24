@@ -547,7 +547,22 @@ function createRequestHandler(options = {}) {
           throw new HttpError(503, "Authentication is not configured.");
         }
 
-        const session = await context.sessionManager.get(request, false);
+        let session = null;
+
+        try {
+          session = await context.sessionManager.get(request, false);
+        } catch (error) {
+          if (error instanceof HttpError && error.statusCode === 401) {
+            await sendJson(response, 200, {
+              authenticated: false,
+              expiresAt: null,
+              provider: context.provider.kind,
+            }, noStoreHeaders(error.headers));
+            return;
+          }
+          throw error;
+        }
+
         await sendJson(response, 200, {
           authenticated: Boolean(session),
           expiresAt: session?.expiresAt ?? null,

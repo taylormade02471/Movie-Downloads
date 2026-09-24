@@ -159,9 +159,24 @@ test("expires and rejects tampered sessions", async (t) => {
       Cookie: sessionCookie.replace("a", "b"),
     },
   });
-  assert.equal(tamperedResponse.status, 401);
+  assert.equal(tamperedResponse.status, 200);
+  assert.deepEqual(await tamperedResponse.json(), {
+    authenticated: false,
+    expiresAt: null,
+    provider: "local",
+  });
 
   clock.now += 600;
+  const expiredSessionResponse = await fetch(`http://127.0.0.1:${port}/api/session`, {
+    headers: { Cookie: sessionCookie },
+  });
+  assert.equal(expiredSessionResponse.status, 200);
+  assert.deepEqual(await expiredSessionResponse.json(), {
+    authenticated: false,
+    expiresAt: null,
+    provider: "local",
+  });
+
   const expiredResponse = await fetch(`http://127.0.0.1:${port}/api/movies`, {
     headers: { Cookie: sessionCookie },
   });

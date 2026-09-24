@@ -133,7 +133,7 @@
 
       <section id="auth-panel" class="panel">
         <h2>Enter shared password</h2>
-        <p class="detail">Sign in before the catalog and playback links are revealed.</p>
+        <p id="password-help" class="detail">Sign in before the catalog and playback links are revealed.</p>
         <form id="password-form">
           <label for="password">Password</label>
           <input
@@ -144,11 +144,12 @@
             autocapitalize="none"
             autocorrect="off"
             spellcheck="false"
+            aria-describedby="password-help login-status"
             required
           />
           <button type="submit">Enter movie room</button>
         </form>
-        <p id="login-status" class="status"></p>
+        <p id="login-status" class="status" aria-live="polite"></p>
       </section>
 
       <section id="library-panel" class="panel" hidden>

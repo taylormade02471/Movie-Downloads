@@ -172,7 +172,9 @@ function createApp({
       body: "{}",
     });
 
-    await handleApiResponse(response, "Unable to sign out.");
+    if (response.status !== 401) {
+      await handleApiResponse(response, "Unable to sign out.");
+    }
 
     setAuthenticated(false);
     player.removeAttribute("src");
