@@ -317,7 +317,13 @@ test("surfaces movie library load failures in the status message", async () => {
   const reloadButton = { addEventListener() {} };
   const logoutButton = { addEventListener() {} };
   const passwordForm = { addEventListener() {} };
-  const passwordInput = { value: "", select() {} };
+  const passwordInput = {
+    value: "",
+    addEventListener() {},
+    removeAttribute() {},
+    select() {},
+    setAttribute() {},
+  };
   const player = {
     currentSrc: "",
     load() {},
@@ -325,7 +331,7 @@ test("surfaces movie library load failures in the status message", async () => {
     removeAttribute() {},
   };
   const status = { textContent: "" };
-  const loginStatus = { textContent: "" };
+  const loginStatus = { focus() {}, textContent: "" };
   const authPanel = { hidden: false };
   const libraryPanel = { hidden: true };
 

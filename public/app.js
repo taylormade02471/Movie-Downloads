@@ -21,6 +21,19 @@ function createApp({
     loginStatus.textContent = message;
   }
 
+  function setPasswordErrorState(hasError) {
+    if (typeof passwordInput.setAttribute !== "function" || typeof passwordInput.removeAttribute !== "function") {
+      return;
+    }
+
+    if (hasError) {
+      passwordInput.setAttribute("aria-invalid", "true");
+      return;
+    }
+
+    passwordInput.removeAttribute("aria-invalid");
+  }
+
   function setAuthenticated(authenticated) {
     authPanel.hidden = authenticated;
     libraryPanel.hidden = !authenticated;
@@ -152,13 +165,18 @@ function createApp({
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
       updateLoginStatus(payload?.error || "Unable to sign in.");
+      setPasswordErrorState(true);
       setAuthenticated(false);
       passwordInput.select();
+      if (typeof loginStatus.focus === "function") {
+        loginStatus.focus();
+      }
       return;
     }
 
     passwordInput.value = "";
     updateLoginStatus("");
+    setPasswordErrorState(false);
     setAuthenticated(true);
     let movies;
     try {
