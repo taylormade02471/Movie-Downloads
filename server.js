@@ -14,6 +14,7 @@ const {
 const { createLocalProvider } = require("./lib/providers/local");
 const { createOneDriveProvider } = require("./lib/providers/onedrive");
 const { createKeyValueStore } = require("./lib/store");
+const { createViewerStateManager, normalizeProfileId } = require("./lib/viewer-state");
 
 const DEFAULT_BODY_LIMIT = 8 * 1024;
 const DEFAULT_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -193,6 +194,27 @@ function readBearerToken(request) {
 
 async function authenticateTvRequest(context, request) {
   return context.tvDeviceManager.authenticateDevice(readBearerToken(request));
+}
+
+function readViewerProfile(value) {
+  try {
+    return normalizeProfileId(value || "home");
+  } catch {
+    throw new HttpError(400, "A valid viewer profile is required.");
+  }
+}
+
+function assertViewerStateReady(context) {
+  if (!context.viewerStateManager.isReady()) {
+    throw new HttpError(503, "Viewer state storage is not configured.");
+  }
+}
+
+function viewerStateOperations(body) {
+  if (!body || !Array.isArray(body.operations)) {
+    throw new HttpError(400, "Viewer-state operations are required.");
+  }
+  return body.operations;
 }
 
 function getClientAddress(request, trustProxy = false) {
@@ -722,7 +744,7 @@ function createTvDeviceManager(
       return { pairingId, code, expiresAt };
     },
 
-    async approvePairing({ code, sessionId }) {
+    async approvePairing({ code, sessionId, profileId }) {
       const normalizedCode = normalizePairingCode(code);
       if (!normalizedCode) {
         throw new HttpError(400, "A Fire TV pairing code is required.");
@@ -747,12 +769,19 @@ function createTvDeviceManager(
       const deviceId = crypto.randomBytes(18).toString("base64url");
       const rawSecret = crypto.randomBytes(32).toString("base64url");
       const deviceToken = `${deviceId}.${rawSecret}`;
+      let assignedProfileId;
+      try {
+        assignedProfileId = normalizeProfileId(profileId || "home");
+      } catch {
+        throw new HttpError(400, "A valid viewer profile is required.");
+      }
 
       await store.set(
         `${TV_DEVICE_PREFIX}${deviceId}`,
         JSON.stringify({
           tokenHash: hashSecret(rawSecret, authConfig.sessionSecret),
           deviceLabel: record.deviceLabel,
+          profileId: assignedProfileId,
           createdAt: approvedAt,
           expiresAt,
           revokedAt: null,
@@ -774,6 +803,7 @@ function createTvDeviceManager(
         status: "approved",
         deviceId,
         deviceLabel: record.deviceLabel,
+        profileId: assignedProfileId,
         expiresAt,
       };
     },
@@ -849,6 +879,7 @@ function createTvDeviceManager(
         deviceId,
         expiresAt: record.expiresAt,
         deviceLabel: record.deviceLabel,
+        profileId: record.profileId || "home",
       };
     },
   };
@@ -924,6 +955,12 @@ function createAppContext(options = {}) {
     pairingTtlMs: options.tvPairingTtlMs,
     deviceTtlMs: options.tvDeviceTtlMs,
   });
+  const viewerStateManager = createViewerStateManager({
+    store,
+    listMovies: () => provider.listMovies(),
+    now,
+    durable: storageReady,
+  });
   const tvPairingRateLimiter = createRequestRateLimiter(store, {
     prefix: "tv-pairing-attempts:",
     windowMs: options.tvPairingRateLimitWindowMs
@@ -942,6 +979,7 @@ function createAppContext(options = {}) {
     publicDir: path.resolve(options.publicDir || path.join(__dirname, "public")),
     sessionManager: createSessionManager(store, authConfig, now, trustProxy, storageReady),
     rateLimiter: createRateLimiter(store, authConfig, now, trustProxy),
+    viewerStateManager,
     tvPairingRateLimiter,
     trustProxy,
     tvDeviceManager,
@@ -1038,6 +1076,7 @@ function createRequestHandler(options = {}) {
         const approved = await context.tvDeviceManager.approvePairing({
           code: typeof body.code === "string" ? body.code : "",
           sessionId: session.sessionId,
+          profileId: readViewerProfile(body.profileId),
         });
         await sendJson(response, 200, approved, noStoreHeaders());
         return;
@@ -1059,6 +1098,29 @@ function createRequestHandler(options = {}) {
           ? await context.provider.listLibrary()
           : { movies: await context.provider.listMovies(), folders: [] };
         await sendJson(response, 200, library, noStoreHeaders());
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/tv/viewer-state") {
+        const device = await authenticateTvRequest(context, request);
+        assertViewerStateReady(context);
+        const state = await context.viewerStateManager.get(device.profileId || "home");
+        await sendJson(response, 200, state, noStoreHeaders());
+        return;
+      }
+
+      if (request.method === "PATCH" && url.pathname === "/api/tv/viewer-state") {
+        const device = await authenticateTvRequest(context, request);
+        assertViewerStateReady(context);
+        const body = await readJsonBody(request, context.authConfig.bodyLimit);
+        if (Object.prototype.hasOwnProperty.call(body, "profileId")) {
+          throw new HttpError(400, "Paired TV profile cannot be changed by the device.");
+        }
+        const state = await context.viewerStateManager.apply(
+          device.profileId || "home",
+          viewerStateOperations(body),
+        );
+        await sendJson(response, 200, state, noStoreHeaders());
         return;
       }
 
@@ -1090,6 +1152,29 @@ function createRequestHandler(options = {}) {
         await context.sessionManager.get(request, true);
         const movies = await context.provider.listMovies();
         await sendJson(response, 200, movies, noStoreHeaders());
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/viewer-state") {
+        await context.sessionManager.get(request, true);
+        assertViewerStateReady(context);
+        const profileId = readViewerProfile(url.searchParams.get("profileId"));
+        const state = await context.viewerStateManager.get(profileId);
+        await sendJson(response, 200, state, noStoreHeaders());
+        return;
+      }
+
+      if (request.method === "PATCH" && url.pathname === "/api/viewer-state") {
+        ensureSameOrigin(request, context.appOrigin, context.trustProxy);
+        await context.sessionManager.get(request, true);
+        assertViewerStateReady(context);
+        const body = await readJsonBody(request, context.authConfig.bodyLimit);
+        const profileId = readViewerProfile(body.profileId);
+        const state = await context.viewerStateManager.apply(
+          profileId,
+          viewerStateOperations(body),
+        );
+        await sendJson(response, 200, state, noStoreHeaders());
         return;
       }
 

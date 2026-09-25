@@ -778,6 +778,141 @@ test("paired Fire TV playback redirects OneDrive movies through a secure ticket"
   assert.equal(streamResponse.headers.get("location"), "https://onedrive.example/download/movie.mp4");
 });
 
+test("synchronizes viewer state between a browser profile and its paired Fire TV", async (t) => {
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  fs.writeFileSync(path.join(moviesDir, "Family-Night.mp4"), "abcdef");
+  fs.writeFileSync(path.join(moviesDir, "Movie-Two.mp4"), "ghijkl");
+  const store = new MemoryStore();
+  const server = await startServer(createAuthOptions({ moviesDir, publicDir, store }));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const origin = `http://127.0.0.1:${port}`;
+  const authResponse = await login(port);
+  const sessionCookie = authResponse.headers.get("set-cookie");
+  const moviesResponse = await fetch(`${origin}/api/movies`, { headers: { Cookie: sessionCookie } });
+  const libraryMovies = await moviesResponse.json();
+  const firstMovie = libraryMovies[0].id;
+  const secondMovie = libraryMovies[1].id;
+
+  const initial = await fetch(`${origin}/api/viewer-state?profileId=family`, {
+    headers: { Cookie: sessionCookie },
+  });
+  assert.equal(initial.status, 200);
+  assert.equal((await initial.json()).profileId, "family");
+
+  const update = await fetch(`${origin}/api/viewer-state`, {
+    method: "PATCH",
+    headers: {
+      Cookie: sessionCookie,
+      Origin: origin,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      profileId: "family",
+      operations: [
+        { type: "progress", movieId: firstMovie, positionSeconds: 42, durationSeconds: 600 },
+        { type: "setFlag", movieId: firstMovie, flag: "favorite", value: true },
+        { type: "queueAdd", movieId: secondMovie },
+      ],
+    }),
+  });
+  assert.equal(update.status, 200);
+  const updatedState = await update.json();
+  assert.equal(updatedState.movies[firstMovie].positionSeconds, 42);
+  assert.equal(updatedState.movies[firstMovie].favorite, true);
+  assert.deepEqual(updatedState.queue, [secondMovie]);
+
+  const homeState = await fetch(`${origin}/api/viewer-state?profileId=home`, {
+    headers: { Cookie: sessionCookie },
+  });
+  assert.equal(homeState.status, 200);
+  assert.deepEqual((await homeState.json()).queue, []);
+
+  const pollSecret = "viewer-state-poll-secret";
+  const pairingResponse = await fetch(`${origin}/api/tv/pairings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceLabel: "Family Fire TV", pollSecret }),
+  });
+  const pairing = await pairingResponse.json();
+  const approveResponse = await fetch(`${origin}/api/tv/pairings/approve`, {
+    method: "POST",
+    headers: {
+      Cookie: sessionCookie,
+      Origin: origin,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ code: pairing.code, profileId: "family" }),
+  });
+  assert.equal(approveResponse.status, 200);
+  const approved = await fetch(`${origin}/api/tv/pairings/${pairing.pairingId}`, {
+    headers: { Authorization: `Bearer ${pollSecret}` },
+  });
+  const deviceToken = (await approved.json()).deviceToken;
+
+  const tvState = await fetch(`${origin}/api/tv/viewer-state`, {
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  });
+  assert.equal(tvState.status, 200);
+  assert.equal((await tvState.json()).movies[firstMovie].favorite, true);
+
+  const tvUpdate = await fetch(`${origin}/api/tv/viewer-state`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${deviceToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ operations: [{ type: "queueRemove", movieId: secondMovie }] }),
+  });
+  assert.equal(tvUpdate.status, 200);
+  assert.deepEqual((await tvUpdate.json()).queue, []);
+});
+
+test("rejects invalid viewer-state profiles and TV profile overrides", async (t) => {
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  fs.writeFileSync(path.join(moviesDir, "Family-Night.mp4"), "abcdef");
+  const server = await startServer(createAuthOptions({ moviesDir, publicDir, store: new MemoryStore() }));
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const origin = `http://127.0.0.1:${port}`;
+  const authResponse = await login(port);
+  const sessionCookie = authResponse.headers.get("set-cookie");
+  const invalidProfile = await fetch(`${origin}/api/viewer-state?profileId=admin`, {
+    headers: { Cookie: sessionCookie },
+  });
+  assert.equal(invalidProfile.status, 400);
+
+  const crossSite = await fetch(`${origin}/api/viewer-state`, {
+    method: "PATCH",
+    headers: {
+      Cookie: sessionCookie,
+      Origin: "https://attacker.example",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ profileId: "home", operations: [] }),
+  });
+  assert.equal(crossSite.status, 403);
+
+  const notConfiguredServer = await startServer(createAuthOptions({
+    moviesDir,
+    publicDir,
+    env: { VERCEL: "1", MOVIE_PROVIDER: "local" },
+    store: new MemoryStore(),
+  }));
+  t.after(() => notConfiguredServer.close());
+  const notConfigured = await fetch(`http://127.0.0.1:${notConfiguredServer.address().port}/api/viewer-state?profileId=home`);
+  assert.equal(notConfigured.status, 503);
+});
+
 test("redirects a valid Cast ticket to a fresh OneDrive playback URL", async (t) => {
   const { root, publicDir } = createTempLibrary();
   const provider = {
