@@ -3,6 +3,7 @@ package com.movieroom.firetv;
 import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
@@ -26,6 +27,11 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
+
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.WriterException;
+import com.google.zxing.common.BitMatrix;
+import com.google.zxing.qrcode.QRCodeWriter;
 
 import java.security.SecureRandom;
 import java.util.Locale;
@@ -190,6 +196,17 @@ public class MainActivity extends Activity {
         return builder.toString();
     }
 
+    private Bitmap createPairingQrBitmap(String pairingUrl, int size) throws WriterException {
+        BitMatrix matrix = new QRCodeWriter().encode(pairingUrl, BarcodeFormat.QR_CODE, size, size);
+        int[] pixels = new int[size * size];
+        for (int y = 0; y < size; y++) {
+            for (int x = 0; x < size; x++) {
+                pixels[y * size + x] = matrix.get(x, y) ? Color.BLACK : Color.WHITE;
+            }
+        }
+        return Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888);
+    }
+
     private void showPairingScreen() {
         final int generation = ++pairingGeneration;
         setScreen();
@@ -198,6 +215,15 @@ public class MainActivity extends Activity {
         root.addView(status);
         ProgressBar progress = new ProgressBar(this);
         root.addView(progress);
+        ImageView qrCode = new ImageView(this);
+        qrCode.setBackgroundColor(Color.WHITE);
+        qrCode.setPadding(dp(12), dp(12), dp(12), dp(12));
+        LinearLayout.LayoutParams qrParams = new LinearLayout.LayoutParams(dp(300), dp(300));
+        qrParams.setMargins(0, dp(16), 0, dp(8));
+        root.addView(qrCode, qrParams);
+        TextView qrInstructions = text("Scan this code with your phone to sign in and approve this TV.", 18);
+        qrInstructions.setGravity(Gravity.CENTER);
+        root.addView(qrInstructions);
         Button retry = button("New Code");
         retry.setOnClickListener(view -> showPairingScreen());
         root.addView(retry);
@@ -206,12 +232,16 @@ public class MainActivity extends Activity {
             try {
                 String pollSecret = randomSecret();
                 MovieRoomModels.Pairing pairing = api.createPairing("Fire TV", pollSecret);
+                String pairingUrl = PairingQrUrl.build(BuildConfig.MOVIE_ROOM_BASE_URL, pairing.code);
+                Bitmap pairingQr = createPairingQrBitmap(pairingUrl, 600);
                 if (generation != pairingGeneration) {
                     return;
                 }
                 handler.post(() -> {
                     if (generation == pairingGeneration) {
-                        status.setText("On your Mac, open Movie Room, choose Pair Fire TV, and enter: " + pairing.code);
+                        progress.setVisibility(View.GONE);
+                        qrCode.setImageBitmap(pairingQr);
+                        status.setText("Scan the QR code with your phone, or enter code: " + pairing.code);
                     }
                 });
                 pollPairing(pairing.pairingId, pollSecret, status, generation);

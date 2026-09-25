@@ -101,6 +101,7 @@ function createApp({
   let googleCastReady = false;
   let authenticated = false;
   let activeProfile = "home";
+  let pendingFireTvCode = "";
   const expectedLibraryCount = 16;
   const permissionStorageKey = "movie_room_permissions_v1";
   const profileStorageKey = "movie_room_viewer_profile_v1";
@@ -1543,6 +1544,7 @@ function createApp({
       }
       throw error;
     }
+    await approvePendingFireTvPairing().catch((error) => updateFireTvPairingStatus(error.message));
     if (!movies.length) {
       return;
     }
@@ -1596,6 +1598,30 @@ function createApp({
     return String(value || "").replace(/[^a-z0-9]/gi, "").toUpperCase();
   }
 
+  function readFireTvCodeFromUrl() {
+    if (!windowRef || !windowRef.location || !windowRef.location.href) {
+      return "";
+    }
+    try {
+      return normalizeFireTvCode(new URL(windowRef.location.href).searchParams.get("firetv_code"));
+    } catch {
+      return "";
+    }
+  }
+
+  function clearFireTvCodeFromUrl() {
+    if (!windowRef || !windowRef.location || !windowRef.history || !hasMethod(windowRef.history, "replaceState")) {
+      return;
+    }
+    try {
+      const cleanUrl = new URL(windowRef.location.href);
+      cleanUrl.searchParams.delete("firetv_code");
+      windowRef.history.replaceState({}, "", cleanUrl.toString());
+    } catch {
+      return;
+    }
+  }
+
   async function approveFireTvPairing(event) {
     event.preventDefault();
     const code = normalizeFireTvCode(fireTvCodeInput ? fireTvCodeInput.value : "");
@@ -1625,8 +1651,24 @@ function createApp({
     return true;
   }
 
+  async function approvePendingFireTvPairing() {
+    if (!pendingFireTvCode || !fireTvCodeInput || !fireTvPairingForm) {
+      return false;
+    }
+
+    fireTvPairingForm.hidden = false;
+    fireTvCodeInput.value = pendingFireTvCode;
+    const approved = await approveFireTvPairing({ preventDefault() {} });
+    if (approved) {
+      pendingFireTvCode = "";
+      clearFireTvCodeFromUrl();
+    }
+    return approved;
+  }
+
   function initialize() {
     initializeViewerProfile();
+    pendingFireTvCode = readFireTvCodeFromUrl();
 
     movieSelect.addEventListener("change", () => {
       rememberMovieForProfile(movieSelect.value);
@@ -1726,6 +1768,11 @@ function createApp({
           updateFireTvPairingStatus("Enter the code shown on your Fire TV.");
         }
       });
+    }
+
+    if (pendingFireTvCode && fireTvPairingForm) {
+      fireTvPairingForm.hidden = false;
+      updateFireTvPairingStatus("QR pairing loaded. Sign in to approve this Fire TV automatically.");
     }
 
     if (fireTvPairingForm) {
@@ -1928,6 +1975,7 @@ function createApp({
         }
 
         await loadLibrary();
+        await approvePendingFireTvPairing();
       })
       .catch((error) => {
         updateStatus(error.message);

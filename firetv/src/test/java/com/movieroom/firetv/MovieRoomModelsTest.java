@@ -39,4 +39,14 @@ public class MovieRoomModelsTest {
         assertEquals("video/mp4", playback.contentType);
         assertEquals(1000L, playback.expiresAt);
     }
+
+    @Test
+    public void buildsPhonePairingQrUrlFromProductionBaseUrl() {
+        assertEquals(
+                "https://movie-downloads-six.vercel.app/?firetv_code=AB12CD",
+                PairingQrUrl.build("https://movie-downloads-six.vercel.app", "AB12CD"));
+        assertEquals(
+                "https://movie-downloads-six.vercel.app/?firetv_code=AB12CD",
+                PairingQrUrl.build("https://movie-downloads-six.vercel.app/", "AB12CD"));
+    }
 }

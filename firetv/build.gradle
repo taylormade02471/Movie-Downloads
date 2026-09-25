@@ -10,8 +10,8 @@ android {
         applicationId "com.movieroom.firetv"
         minSdk 23
         targetSdk 35
-        versionCode 3
-        versionName "0.3.0"
+        versionCode 4
+        versionName "0.4.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "String", "MOVIE_ROOM_BASE_URL", "\"https://movie-downloads-six.vercel.app\""
     }
@@ -31,6 +31,7 @@ dependencies {
     implementation "androidx.leanback:leanback:1.2.0-alpha04"
     implementation "androidx.media3:media3-exoplayer:1.5.1"
     implementation "androidx.media3:media3-ui:1.5.1"
+    implementation "com.google.zxing:core:3.5.3"
     testImplementation "junit:junit:4.13.2"
     testImplementation "androidx.test:core:1.6.1"
     testImplementation "org.json:json:20240303"

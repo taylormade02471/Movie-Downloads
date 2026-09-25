@@ -173,6 +173,8 @@ test("exposes phone and TV playback controls", () => {
   assert.match(html, /cast_sender\.js\?loadCastFramework=1/);
   assert.match(html, /__onGCastApiAvailable/);
   assert.doesNotMatch(html, /disableremoteplayback/i);
+  const script = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
+  assert.match(script, /firetv_code/);
 });
 
 test("configures Fire TV playback for buffered seeking", () => {
@@ -684,6 +686,45 @@ test("paired Fire TV lists the library and receives a cookie-free playback ticke
   const ticketResponse = await fetch(playback.url, { headers: { Range: "bytes=0-2" } });
   assert.equal(ticketResponse.status, 206);
   assert.equal(await ticketResponse.text(), "abc");
+});
+
+test("renews an active Fire TV device token instead of forcing a new pairing", async (t) => {
+  const { root, moviesDir, publicDir } = createTempLibrary();
+  fs.writeFileSync(path.join(moviesDir, "Family-Night.mp4"), "abcdef");
+  const clock = { now: 10_000 };
+  const store = new MemoryStore(() => clock.now);
+  const deviceTtlMs = 100;
+  const server = await startServer(createAuthOptions({
+    moviesDir,
+    publicDir,
+    now: () => clock.now,
+    store,
+    tvDeviceTtlMs: deviceTtlMs,
+  }));
+
+  t.after(() => {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const origin = `http://127.0.0.1:${port}`;
+  const deviceToken = await pairFireTv(port);
+  const [deviceId] = deviceToken.split(".");
+
+  clock.now += 50;
+  const firstUse = await fetch(`${origin}/api/tv/library`, {
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  });
+  assert.equal(firstUse.status, 200);
+  const refreshed = JSON.parse(await store.get(`tv-device:${deviceId}`));
+  assert.equal(refreshed.expiresAt, clock.now + deviceTtlMs);
+
+  clock.now += 75;
+  const secondUse = await fetch(`${origin}/api/tv/library`, {
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  });
+  assert.equal(secondUse.status, 200);
 });
 
 test("paired Fire TV playback redirects OneDrive movies through a secure ticket", async (t) => {

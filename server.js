@@ -820,18 +820,29 @@ function createTvDeviceManager(
         throw new HttpError(401, "Fire TV device token is invalid.");
       }
 
-      const record = parseStoredRecord(
+      let record = parseStoredRecord(
         await store.get(`${TV_DEVICE_PREFIX}${deviceId}`),
         401,
         "Fire TV device token is invalid or expired.",
       );
 
-      if (!record.expiresAt || record.expiresAt <= now() || record.revokedAt) {
+      const currentTime = now();
+      if (!record.expiresAt || record.expiresAt <= currentTime || record.revokedAt) {
         await store.delete(`${TV_DEVICE_PREFIX}${deviceId}`);
         throw new HttpError(401, "Fire TV device token is invalid or expired.");
       }
       if (!safeCompare(record.tokenHash, hashSecret(rawSecret, authConfig.sessionSecret))) {
         throw new HttpError(401, "Fire TV device token is invalid or expired.");
+      }
+
+      const refreshedExpiresAt = Math.max(record.expiresAt, currentTime + deviceTtlMs);
+      if (refreshedExpiresAt !== record.expiresAt) {
+        record = { ...record, expiresAt: refreshedExpiresAt };
+        await store.set(
+          `${TV_DEVICE_PREFIX}${deviceId}`,
+          JSON.stringify(record),
+          deviceTtlMs,
+        );
       }
 
       return {
