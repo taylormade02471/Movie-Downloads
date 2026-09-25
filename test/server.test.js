@@ -241,7 +241,7 @@ test("configures Vercel media permissions for static pages", () => {
   assert.match(permissionsHeader.value, /local-network-access=\(self\)/);
   assert.match(permissionsHeader.value, /loopback-network=\(self\)/);
   assert.match(permissionsHeader.value, /picture-in-picture=\(self\)/);
-  assert.match(permissionsHeader.value, /presentation=\(self\)/);
+  assert.doesNotMatch(permissionsHeader.value, /presentation=/);
 });
 
 test("logs in, lists nested local movies, resolves playback, and logs out", async (t) => {
@@ -1425,6 +1425,46 @@ test("waits for an explicit movie selection after a successful login", async () 
     requests.map((request) => request.url),
     ["/api/login", "/api/library"],
   );
+});
+
+test("does not let a stale session check hide the library after login", async () => {
+  const movieSelect = { value: "", innerHTML: "", disabled: true, addEventListener() {}, appendChild(option) { this.value ||= option.value; } };
+  const player = { src: "", load() {}, addEventListener() {}, removeAttribute() {} };
+  const status = { textContent: "" };
+  const loginStatus = { textContent: "", focus() {} };
+  const authPanel = { hidden: false };
+  const libraryPanel = { hidden: true };
+  let releaseSession;
+  const sessionPending = new Promise((resolve) => { releaseSession = resolve; });
+  const app = createApp({
+    movieSelect,
+    reloadButton: { addEventListener() {} },
+    logoutButton: { addEventListener() {} },
+    passwordForm: { addEventListener() {} },
+    passwordInput: { value: "lowercase", disabled: false, select() {}, setAttribute() {}, removeAttribute() {} },
+    submitButton: { disabled: false },
+    player,
+    status,
+    loginStatus,
+    authPanel,
+    libraryPanel,
+    fetchImpl: async (url) => {
+      if (url === "/api/session") return sessionPending;
+      if (url === "/api/login") return { ok: true, status: 204 };
+      if (url === "/api/library") return { ok: true, status: 200, json: async () => [{ id: "movie-1", title: "Movie One", size: 1024 }] };
+      throw new Error(`Unexpected request: ${url}`);
+    },
+    locationOrigin: "http://127.0.0.1:3000",
+    createOption: () => ({}),
+  });
+
+  app.initialize();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await app.handleLogin({ preventDefault() {} });
+  assert.equal(libraryPanel.hidden, false);
+  releaseSession({ ok: true, status: 200, json: async () => ({ authenticated: false }) });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(libraryPanel.hidden, false);
 });
 
 test("refreshes a temporary playback link once after a player error", async () => {

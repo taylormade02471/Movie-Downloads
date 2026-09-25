@@ -135,6 +135,7 @@ function createApp({
   let googleCastContext = null;
   let googleCastReady = false;
   let authenticated = false;
+  let authTransitionVersion = 0;
   let activeProfile = "home";
   let pendingFireTvCode = "";
   const expectedLibraryCount = 16;
@@ -894,28 +895,6 @@ function createApp({
       fullscreenButton.disabled = !authenticated;
     }
 
-    if (theaterModeButton) theaterModeButton.addEventListener("click", () => setPlayerMode(playerMode === "theater" ? "normal" : "theater"));
-    if (miniplayerModeButton) miniplayerModeButton.addEventListener("click", () => setPlayerMode(playerMode === "miniplayer" ? "normal" : "miniplayer"));
-    if (upNextPlay) upNextPlay.addEventListener("click", () => playNextFromQueue());
-
-    if (documentRef && typeof documentRef.addEventListener === "function") {
-      documentRef.addEventListener("keydown", (event) => {
-        const target = event.target;
-        const tag = target && target.tagName ? String(target.tagName).toLowerCase() : "";
-        if (tag === "input" || tag === "textarea" || (target && target.isContentEditable)) return;
-        const key = String(event.key || "").toLowerCase();
-        if (key === " " || key === "k") { event.preventDefault(); if (player.paused) player.play(); else player.pause(); }
-        else if (key === "j") seekPlayerBy(-10);
-        else if (key === "l") seekPlayerBy(30);
-        else if (key === "f") openFullscreenPlayer();
-        else if (key === "t") setPlayerMode(playerMode === "theater" ? "normal" : "theater");
-        else if (key === "i") setPlayerMode(playerMode === "miniplayer" ? "normal" : "miniplayer");
-        else if (key === "m") player.muted = !player.muted;
-        else if (key === "escape" && playerMode !== "normal") setPlayerMode("normal");
-        else if (key === "/" && searchInput) { event.preventDefault(); searchInput.focus(); }
-      });
-      documentRef.addEventListener("pagehide", () => { savePlaybackProgress("pagehide").catch(() => {}); });
-    }
     if (pairFireTvButton) {
       pairFireTvButton.disabled = !authenticated;
     }
@@ -1391,7 +1370,7 @@ function createApp({
     }
   }
 
-  function createShelfCard(movie, shelf) {
+  function createShelfCard(movie, shelf, shelfType = "recent") {
     const documentRef = shelf.ownerDocument;
     const card = documentRef.createElement("button");
     const ready = (Number(movie.size) || 0) > 0;
@@ -1424,10 +1403,10 @@ function createApp({
     title.textContent = movie.title || movie.fileName || "Untitled movie";
     const meta = documentRef.createElement("span");
     meta.className = "movie-meta";
-    meta.textContent = shelf === "continue" ? remainingLabel(viewerRecord(movie.id)) : movieFolderLabel(movie);
+    meta.textContent = shelfType === "continue" ? remainingLabel(viewerRecord(movie.id)) : movieFolderLabel(movie);
     info.append(title, meta);
     const record = viewerRecord(movie.id);
-    if (shelf === "continue" && record) {
+    if (shelfType === "continue" && record) {
       const track = documentRef.createElement("span");
       track.className = "progress-track";
       const fill = documentRef.createElement("span");
@@ -1456,7 +1435,8 @@ function createApp({
       shelf.replaceChildren(empty);
       return;
     }
-    shelf.replaceChildren(...movies.map((movie) => createShelfCard(movie, shelf === continueWatchingShelf ? "continue" : "recent")));
+    const shelfType = shelf === continueWatchingShelf ? "continue" : "recent";
+    shelf.replaceChildren(...movies.map((movie) => createShelfCard(movie, shelf, shelfType)));
   }
 
   function renderDiscovery() {
@@ -1804,7 +1784,11 @@ function createApp({
   }
 
   async function loadSession() {
+    const requestVersion = authTransitionVersion;
     const response = await fetchImpl("/api/session", { credentials: "same-origin" });
+    if (requestVersion !== authTransitionVersion) {
+      return authenticated;
+    }
     if (response.status === 401) {
       setAuthUnavailable(false);
       setAuthenticated(false);
@@ -1825,6 +1809,9 @@ function createApp({
     }
 
     const session = await response.json();
+    if (requestVersion !== authTransitionVersion) {
+      return authenticated;
+    }
     setAuthUnavailable(false);
     if (session.authConfigured === false) {
       setAuthenticated(false);
@@ -1844,6 +1831,7 @@ function createApp({
 
   async function handleLogin(event) {
     event.preventDefault();
+    authTransitionVersion += 1;
     updateLoginStatus("Signing in…");
 
     const response = await fetchImpl("/api/login", {
@@ -1888,6 +1876,7 @@ function createApp({
   }
 
   async function handleLogout() {
+    authTransitionVersion += 1;
     const response = await fetchImpl("/api/logout", {
       method: "POST",
       credentials: "same-origin",
@@ -2044,6 +2033,29 @@ function createApp({
         searchTerm = searchInput.value.trim().toLowerCase();
         renderMovieGrid();
       });
+    }
+
+    if (theaterModeButton) theaterModeButton.addEventListener("click", () => setPlayerMode(playerMode === "theater" ? "normal" : "theater"));
+    if (miniplayerModeButton) miniplayerModeButton.addEventListener("click", () => setPlayerMode(playerMode === "miniplayer" ? "normal" : "miniplayer"));
+    if (upNextPlay) upNextPlay.addEventListener("click", () => playNextFromQueue());
+
+    if (documentRef && typeof documentRef.addEventListener === "function") {
+      documentRef.addEventListener("keydown", (event) => {
+        const target = event.target;
+        const tag = target && target.tagName ? String(target.tagName).toLowerCase() : "";
+        if (tag === "input" || tag === "textarea" || (target && target.isContentEditable)) return;
+        const key = String(event.key || "").toLowerCase();
+        if (key === " " || key === "k") { event.preventDefault(); if (player.paused) player.play(); else player.pause(); }
+        else if (key === "j") seekPlayerBy(-10);
+        else if (key === "l") seekPlayerBy(30);
+        else if (key === "f") openFullscreenPlayer();
+        else if (key === "t") setPlayerMode(playerMode === "theater" ? "normal" : "theater");
+        else if (key === "i") setPlayerMode(playerMode === "miniplayer" ? "normal" : "miniplayer");
+        else if (key === "m") player.muted = !player.muted;
+        else if (key === "escape" && playerMode !== "normal") setPlayerMode("normal");
+        else if (key === "/" && searchInput) { event.preventDefault(); searchInput.focus(); }
+      });
+      documentRef.addEventListener("pagehide", () => { savePlaybackProgress("pagehide").catch(() => {}); });
     }
 
     if (profileToggle && profileMenu) {

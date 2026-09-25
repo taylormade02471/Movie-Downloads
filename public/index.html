@@ -749,12 +749,14 @@
 
       .permission-panel {
         position: fixed;
-        inset: 0;
+        right: 18px;
+        bottom: 18px;
         z-index: 20;
         display: grid;
-        place-items: center;
-        padding: 18px;
-        background: rgba(0, 0, 0, 0.72);
+        width: min(520px, calc(100vw - 36px));
+        padding: 0;
+        background: transparent;
+        pointer-events: none;
       }
 
       .permission-card {
@@ -766,6 +768,7 @@
         padding: 22px;
         background: #181818;
         box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+        pointer-events: auto;
       }
 
       .permission-card h2,
@@ -894,7 +897,7 @@
   </head>
   <body>
     <section id="permission-panel" class="permission-panel" hidden>
-      <div class="permission-card" role="dialog" aria-modal="true" aria-labelledby="permission-title">
+      <div class="permission-card" role="dialog" aria-modal="false" aria-labelledby="permission-title">
         <h2 id="permission-title">Allow playback permissions</h2>
         <p>
           This lets Movie Room keep you signed in, keep the screen awake, and prepare Chrome or Safari for TV playback.
@@ -991,7 +994,7 @@
       </section>
       <div class="library-shell">
         <section class="watch-stage" aria-label="Now playing">
-          <div id="watch-placeholder" class="watch-placeholder">
+          <div id="watch-placeholder" class="watch-placeholder" hidden>
             <img src="/movie-room-hero.png" alt="TaylorMade Movies movie theater" />
             <div class="watch-placeholder-copy">
               <strong>Choose a movie to start</strong>
@@ -1036,6 +1039,8 @@
             <button id="up-next-play" type="button">Play next</button>
           </aside>
 
+        </section>
+
           <section class="browse-section" aria-labelledby="browse-title">
             <div class="browse-header">
               <div>
@@ -1061,7 +1066,6 @@
               <div id="picks-shelf" class="movie-rail" aria-live="polite"></div>
             </section>
           </section>
-        </section>
 
         <aside class="folder-panel" aria-label="Library controls">
           <div class="controls">
