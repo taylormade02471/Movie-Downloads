@@ -1050,7 +1050,20 @@ function createApp({
       if (activeFolder === folderPath) {
         button.classList.add("active");
       }
-      button.textContent = extraText ? `${label} ${extraText} ${count}` : `${label} ${count}`;
+      const icon = documentRef.createElementNS("http://www.w3.org/2000/svg", "svg");
+      icon.classList.add("folder-icon");
+      icon.setAttribute("viewBox", "0 0 24 20");
+      icon.setAttribute("aria-hidden", "true");
+      const iconPath = documentRef.createElementNS("http://www.w3.org/2000/svg", "path");
+      iconPath.setAttribute("d", "M2 3.5A2.5 2.5 0 0 1 4.5 1h5.2l2 2H19.5A2.5 2.5 0 0 1 22 5.5v10A2.5 2.5 0 0 1 19.5 18h-15A2.5 2.5 0 0 1 2 15.5v-12ZM4 6h16v-.5a.5.5 0 0 0-.5-.5h-8.6l-2-2H4.5a.5.5 0 0 0-.5.5V6Z");
+      icon.append(iconPath);
+      const text = documentRef.createElement("span");
+      text.className = "folder-label";
+      text.textContent = extraText ? `${label} ${extraText}` : label;
+      const countLabel = documentRef.createElement("span");
+      countLabel.className = "folder-count";
+      countLabel.textContent = String(count);
+      button.append(icon, text, countLabel);
       button.addEventListener("click", () => {
         activeFolder = folderPath;
         renderLibrary();

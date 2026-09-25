@@ -7,9 +7,15 @@
     <style>
       :root {
         color-scheme: dark;
-        font-family: Arial, sans-serif;
-        background: #0f0f0f;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #090a0b;
         color: #f5f5f5;
+        --gold: #f0c45b;
+        --gold-soft: #f8d77d;
+        --ink: #090a0b;
+        --panel: #141516;
+        --panel-raised: #1b1d1e;
+        --line: #303234;
       }
 
       * {
@@ -18,7 +24,9 @@
 
       body {
         margin: 0;
-        background: #0f0f0f;
+        background:
+          radial-gradient(circle at 78% 0%, rgba(240, 196, 91, 0.08), transparent 30rem),
+          #090a0b;
         color: #f5f5f5;
       }
 
@@ -44,18 +52,23 @@
         align-items: center;
         justify-content: space-between;
         gap: 16px;
-        padding: 12px 24px;
-        background: rgba(15, 15, 15, 0.96);
-        border-bottom: 1px solid #2a2a2a;
+        padding: 15px 32px;
+        background: rgba(9, 10, 11, 0.97);
+        border-bottom: 1px solid #252729;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.26);
       }
 
       .brand {
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 14px;
         min-width: max-content;
-        font-size: 18px;
+        font-size: 20px;
         font-weight: 700;
+      }
+
+      .brand-mark {
+        display: none;
       }
 
       .brand-copy {
@@ -64,27 +77,18 @@
       }
 
       .brand-primary {
-        color: #f0c45b;
-        letter-spacing: -0.02em;
+        color: var(--gold-soft);
+        letter-spacing: -0.035em;
+        font-size: 21px;
+        line-height: 1;
       }
 
       .brand-secondary {
-        color: #a9a9a9;
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.16em;
+        color: #bdbdbd;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.23em;
         text-transform: uppercase;
-      }
-
-      .brand-mark {
-        display: grid;
-        place-items: center;
-        width: 34px;
-        height: 24px;
-        border-radius: 7px;
-        background: #ff0033;
-        color: #fff;
-        font-size: 14px;
       }
 
       .topbar-actions,
@@ -158,17 +162,23 @@
       .search-wrap input {
         width: 100%;
         min-width: 0;
-        border: 1px solid #333;
+        border: 1px solid #353739;
         border-radius: 999px;
         padding: 11px 16px;
-        background: #171717;
+        background: #151617;
         color: #fff;
       }
 
+      .search-wrap input:focus {
+        border-color: var(--gold);
+        outline: 2px solid rgba(240, 196, 91, 0.22);
+        outline-offset: 1px;
+      }
+
       .page {
-        width: min(1440px, 100%);
+        width: min(1500px, 100%);
         margin: 0 auto;
-        padding: 20px 24px 36px;
+        padding: 24px 32px 56px;
       }
 
       .auth-panel {
@@ -214,9 +224,15 @@
         border: 0;
         border-radius: 8px;
         padding: 11px 14px;
-        background: #f5f5f5;
-        color: #101010;
+        background: var(--gold);
+        color: #171208;
         font-weight: 700;
+        transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+      }
+
+      button:hover:not(:disabled) {
+        background: var(--gold-soft);
+        transform: translateY(-1px);
       }
 
       button.secondary {
@@ -232,7 +248,7 @@
       .library-shell {
         display: grid;
         grid-template-columns: minmax(0, 1fr);
-        gap: 30px;
+        gap: 34px;
         align-items: start;
       }
 
@@ -243,11 +259,12 @@
       .watch-placeholder {
         position: relative;
         display: grid;
-        min-height: clamp(240px, 42vw, 560px);
+        min-height: clamp(300px, 43vw, 570px);
         overflow: hidden;
-        border: 1px solid #322a1b;
-        border-radius: 16px;
+        border: 1px solid #49391c;
+        border-radius: 14px;
         background: #050505;
+        box-shadow: 0 22px 56px rgba(0, 0, 0, 0.34);
       }
 
       .watch-placeholder img {
@@ -256,7 +273,7 @@
         height: 100%;
         min-height: inherit;
         object-fit: cover;
-        opacity: 0.68;
+        opacity: 0.88;
       }
 
       .watch-placeholder-copy {
@@ -267,14 +284,24 @@
         align-content: center;
         gap: 9px;
         padding: 24px;
-        background: linear-gradient(90deg, rgba(0, 0, 0, 0.56), rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.52));
+        background: linear-gradient(90deg, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.72));
         text-align: center;
       }
 
       .watch-placeholder-copy strong {
-        color: #f0c45b;
-        font-size: clamp(22px, 4vw, 42px);
+        color: var(--gold-soft);
+        font-size: clamp(26px, 4vw, 44px);
+        font-weight: 800;
         letter-spacing: -0.03em;
+      }
+
+      .watch-placeholder-copy::after {
+        content: "";
+        width: 44px;
+        height: 3px;
+        margin-top: 8px;
+        border-radius: 999px;
+        background: var(--gold);
       }
 
       .watch-placeholder-copy span {
@@ -285,8 +312,10 @@
       .player-frame {
         position: relative;
         overflow: hidden;
-        border-radius: 8px;
+        border: 1px solid #3b301d;
+        border-radius: 14px;
         background: #000;
+        box-shadow: 0 22px 56px rgba(0, 0, 0, 0.38);
       }
 
       .player-frame:fullscreen,
@@ -340,12 +369,14 @@
       .watch-meta {
         display: grid;
         gap: 10px;
-        padding: 14px 0 22px;
+        padding: 16px 2px 24px;
       }
 
       .watch-meta h1 {
         margin: 0;
-        font-size: clamp(22px, 3vw, 34px);
+        color: #fff;
+        font-size: clamp(25px, 3vw, 38px);
+        font-weight: 800;
         line-height: 1.1;
       }
 
@@ -430,49 +461,87 @@
 
       .folder-panel {
         display: grid;
-        gap: 10px;
-        border-top: 1px solid #2c2c2c;
-        padding-top: 18px;
+        gap: 14px;
+        border-top: 1px solid #2e3032;
+        padding-top: 28px;
       }
 
       .folder-panel h2,
       .browse-section h2 {
         margin: 0;
-        font-size: 18px;
+        color: #fff;
+        font-size: 26px;
+        font-weight: 800;
+        letter-spacing: -0.03em;
       }
 
       .folder-shelf {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(150px, 1fr));
+        gap: 12px;
       }
 
       .folder-chip {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        min-height: 70px;
         max-width: 100%;
-        border: 1px solid #333;
-        border-radius: 7px;
-        padding: 8px 10px;
-        background: #181818;
-        color: #f1f1f1;
-        font-size: 12px;
+        border: 1px solid #35383a;
+        border-radius: 10px;
+        padding: 13px 14px;
+        background: linear-gradient(145deg, #1d1f20, #131516);
+        color: #f5f5f5;
+        font-size: 14px;
+        font-weight: 800;
         white-space: normal;
         text-align: left;
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+      }
+
+      .folder-icon {
+        width: 24px;
+        height: 20px;
+        color: var(--gold);
+        fill: currentColor;
+        flex: 0 0 auto;
+      }
+
+      .folder-label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .folder-count {
+        color: #bcbcbc;
+        font-size: 12px;
+        font-weight: 700;
       }
 
       .folder-chip.active {
-        background: #f5f5f5;
-        color: #101010;
+        border-color: var(--gold);
+        background: var(--gold);
+        color: #171208;
+      }
+
+      .folder-chip.active .folder-icon,
+      .folder-chip.active .folder-count {
+        color: #171208;
       }
 
       .browse-section {
         display: grid;
         gap: 14px;
-        margin-top: 22px;
+        margin-top: 30px;
       }
 
       .browse-header {
         display: flex;
-        align-items: end;
+        align-items: center;
         justify-content: space-between;
         gap: 16px;
         flex-wrap: wrap;
@@ -487,15 +556,16 @@
       .category-chip {
         border: 1px solid #3b3b3b;
         border-radius: 999px;
-        padding: 8px 13px;
-        background: #1a1a1a;
+        min-width: 74px;
+        padding: 9px 15px;
+        background: #1c1e20;
         color: #d5d5d5;
-        font-size: 12px;
+        font-size: 13px;
       }
 
       .category-chip.active {
-        border-color: #f0c45b;
-        background: #f0c45b;
+        border-color: var(--gold);
+        background: var(--gold);
         color: #17120a;
       }
 
@@ -506,8 +576,8 @@
 
       .movie-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-        gap: 24px 16px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 26px 14px;
       }
 
       .movie-card {
@@ -517,9 +587,9 @@
         min-width: 0;
         padding: 0;
         overflow: hidden;
-        border: 0;
-        border-radius: 12px;
-        background: transparent;
+        border: 1px solid #2d3032;
+        border-radius: 10px;
+        background: #121415;
         color: #f5f5f5;
         text-align: left;
         transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
@@ -527,9 +597,10 @@
 
       .movie-card:hover,
       .movie-card:focus-visible {
-        box-shadow: 0 18px 32px rgba(0, 0, 0, 0.36);
-        transform: translateY(-2px);
-        outline: 2px solid #ff335c;
+        border-color: var(--gold);
+        box-shadow: 0 18px 34px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(240, 196, 91, 0.22);
+        transform: translateY(-3px);
+        outline: none;
         outline-offset: 3px;
       }
 
@@ -544,7 +615,7 @@
         aspect-ratio: 16 / 9;
         width: 100%;
         overflow: hidden;
-        border-radius: 12px;
+        border-radius: 9px 9px 0 0;
         background:
           linear-gradient(135deg, rgba(255, 0, 51, 0.78), rgba(255, 184, 77, 0.72)),
           #2b1616;
@@ -584,7 +655,8 @@
       .movie-info {
         display: grid;
         gap: 7px;
-        padding: 11px 4px 4px;
+        min-height: 112px;
+        padding: 13px 14px 14px;
       }
 
       .movie-title,
@@ -597,7 +669,9 @@
       .movie-title {
         display: -webkit-box;
         overflow: hidden;
-        font-weight: 700;
+        color: #fff;
+        font-size: 15px;
+        font-weight: 800;
         line-height: 1.28;
         overflow-wrap: anywhere;
         -webkit-box-orient: vertical;
@@ -605,8 +679,8 @@
       }
 
       .movie-meta {
-        color: #b8b8b8;
-        font-size: 13px;
+        color: #c6c6c6;
+        font-size: 12px;
         line-height: 1.35;
       }
 
@@ -636,8 +710,11 @@
 
       .guidance-area {
         display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 12px;
-        margin-top: 2px;
+        margin-top: 4px;
+        border-top: 1px solid #2e3032;
+        padding-top: 28px;
       }
 
       .permission-panel {
@@ -683,6 +760,14 @@
       @media (max-width: 940px) {
         .library-shell {
           grid-template-columns: 1fr;
+        }
+
+        .movie-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .folder-shelf {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
         }
       }
 
@@ -739,6 +824,11 @@
           gap: 12px;
         }
 
+        .folder-shelf,
+        .guidance-area {
+          grid-template-columns: 1fr;
+        }
+
         .fullscreen-overlay {
           top: 8px;
           right: 8px;
@@ -747,7 +837,12 @@
         }
 
         .movie-info {
+          min-height: 102px;
           padding: 10px;
+        }
+
+        .folder-chip {
+          min-height: 62px;
         }
       }
     </style>
@@ -839,7 +934,7 @@
       <div class="library-shell">
         <section class="watch-stage" aria-label="Now playing">
           <div id="watch-placeholder" class="watch-placeholder">
-            <img src="/taylormade-movies-cover.png" alt="TaylorMade Movies" />
+            <img src="/movie-room-hero.png" alt="TaylorMade Movies movie theater" />
             <div class="watch-placeholder-copy">
               <strong>Choose a movie to start</strong>
               <span>Your player will open here when you select a title.</span>
