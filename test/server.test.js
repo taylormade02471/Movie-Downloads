@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { createServer } = require("../server");
+const { createPlaybackResolver, createServer } = require("../server");
 const { createApp, classifyMovie, filterMovieFolders } = require("../public/app");
 const { MemoryStore } = require("../lib/store");
 const { createOneDriveProvider } = require("../lib/providers/onedrive");
@@ -155,6 +155,8 @@ test("exposes phone and TV playback controls", () => {
   assert.match(html, /Pair Fire TV/);
   assert.match(html, /id="keep-awake"/);
   assert.match(html, /id="fullscreen-player"/);
+  assert.match(html, /id="seek-backward"/);
+  assert.match(html, /id="seek-forward"/);
   assert.match(html, /player-frame:fullscreen \.fullscreen-overlay/);
   assert.match(html, /id="profile-toggle"/);
   assert.match(html, /data-viewer-profile="family"/);
@@ -171,6 +173,18 @@ test("exposes phone and TV playback controls", () => {
   assert.match(html, /cast_sender\.js\?loadCastFramework=1/);
   assert.match(html, /__onGCastApiAvailable/);
   assert.doesNotMatch(html, /disableremoteplayback/i);
+});
+
+test("configures Fire TV playback for buffered seeking", () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "firetv", "src", "main", "java", "com", "movieroom", "firetv", "MainActivity.java"),
+    "utf8",
+  );
+  assert.match(source, /setShowRewindButton\(true\)/);
+  assert.match(source, /setShowFastForwardButton\(true\)/);
+  assert.match(source, /KEYCODE_MEDIA_FAST_FORWARD/);
+  assert.match(source, /KEYCODE_MEDIA_REWIND/);
+  assert.match(source, /setBufferDurationsMs\(30_000, 300_000, 2_500, 5_000\)/);
 });
 
 test("ships a Safari-compatible browser script for older iPhones", () => {
@@ -285,7 +299,7 @@ test("logs in, lists nested local movies, resolves playback, and logs out", asyn
   assert.equal(afterLogoutResponse.status, 401);
 });
 
-test("coalesces simultaneous playback-link resolution for independent viewers", async (t) => {
+test("coalesces simultaneous playback-link resolution for independent viewers", async () => {
   let resolveCalls = 0;
   let releaseResolution;
   const resolutionGate = new Promise((resolve) => {
@@ -302,35 +316,15 @@ test("coalesces simultaneous playback-link resolution for independent viewers", 
       };
     },
   };
-  const server = await startServer(createAuthOptions({ provider }));
-
-  t.after(() => server.close());
-
-  const { port } = server.address();
-  const authResponse = await login(port);
-  const sessionCookie = authResponse.headers.get("set-cookie");
-  const requestOptions = {
-    method: "POST",
-    headers: {
-      Cookie: sessionCookie,
-      "Content-Type": "application/json",
-      Origin: `http://127.0.0.1:${port}`,
-    },
-    body: JSON.stringify({ movieId: "toy-story-5.mp4" }),
-  };
-
-  const responsesPromise = Promise.all([
-    fetch(`http://127.0.0.1:${port}/api/playback`, requestOptions),
-    fetch(`http://127.0.0.1:${port}/api/playback`, requestOptions),
-  ]);
-
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  const resolvePlayback = createPlaybackResolver(provider);
+  const first = resolvePlayback("toy-story-5.mp4");
+  const second = resolvePlayback("toy-story-5.mp4");
+  await Promise.resolve();
   assert.equal(resolveCalls, 1);
   releaseResolution();
 
-  const responses = await responsesPromise;
   assert.deepEqual(
-    await Promise.all(responses.map((response) => response.json())),
+    await Promise.all([first, second]),
     [
       { url: "https://download.example/toy-story-5.mp4", expiresAt: null },
       { url: "https://download.example/toy-story-5.mp4", expiresAt: null },

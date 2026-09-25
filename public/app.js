@@ -47,6 +47,8 @@ function createApp({
   enablePermissionsButton,
   skipPermissionsButton,
   permissionStatus,
+  seekBackwardButton,
+  seekForwardButton,
   castButton,
   tvGuideTitle,
   tvGuideSteps,
@@ -85,6 +87,7 @@ function createApp({
   let stallPosition = null;
   let playbackRequestVersion = 0;
   let stableRefreshPosition = null;
+  let isSeeking = false;
   let allMovies = [];
   let allFolders = [];
   let activeFolder = "all";
@@ -245,6 +248,30 @@ function createApp({
       : `Buffer target: ${formatBufferSeconds(seconds)} ready of 5 minutes.`;
     if (bufferStatus.style) {
       bufferStatus.style.setProperty("--buffer-progress", `${Math.round(progress * 100)}%`);
+    }
+  }
+
+  function seekPlayerBy(offsetSeconds) {
+    if (!player || !Number.isFinite(player.duration)) {
+      updateStatus("Fast forward is available when the movie finishes loading.");
+      return;
+    }
+
+    const currentTime = Number.isFinite(player.currentTime) ? player.currentTime : 0;
+    const targetTime = Math.max(
+      0,
+      Math.min(currentTime + offsetSeconds, Math.max(player.duration - 0.1, 0)),
+    );
+
+    try {
+      clearStallRecovery();
+      isSeeking = true;
+      player.currentTime = targetTime;
+      updateStatus(offsetSeconds < 0 ? "Rewinding 10 seconds..." : "Fast forwarding 30 seconds...");
+      updateBufferStatus();
+    } catch {
+      isSeeking = false;
+      updateStatus("This browser could not seek in the current video.");
     }
   }
 
@@ -1406,7 +1433,8 @@ function createApp({
     updateStatus(statusWithBuffer(message));
 
     if (
-      stallRecoveryTimer !== null
+      isSeeking
+      || stallRecoveryTimer !== null
       || playbackRefreshInProgress
       || !movieSelect.value
       || player.paused
@@ -1730,6 +1758,14 @@ function createApp({
       });
     }
 
+    if (seekBackwardButton) {
+      seekBackwardButton.addEventListener("click", () => seekPlayerBy(-10));
+    }
+
+    if (seekForwardButton) {
+      seekForwardButton.addEventListener("click", () => seekPlayerBy(30));
+    }
+
     player.addEventListener("webkitplaybacktargetavailabilitychanged", (event) => {
       safariAirPlayAvailable = event.availability === "available";
       updateCastButton();
@@ -1758,6 +1794,17 @@ function createApp({
 
     player.addEventListener("waiting", () => {
       scheduleStallRecovery("Loading more video while keeping your place…");
+    });
+
+    player.addEventListener("seeking", () => {
+      isSeeking = true;
+      clearStallRecovery();
+      updateBufferStatus();
+    });
+
+    player.addEventListener("seeked", () => {
+      isSeeking = false;
+      updateStatus(statusWithBuffer("Seek complete."));
     });
 
     player.addEventListener("canplay", () => {
@@ -1818,6 +1865,7 @@ function createApp({
       updatePlaybackState("paused");
     });
     player.addEventListener("ended", () => {
+      isSeeking = false;
       clearStallRecovery();
       updatePlaybackState("none");
       releaseWakeLock().catch(() => {});
@@ -1852,6 +1900,7 @@ function createApp({
     });
 
     player.addEventListener("error", () => {
+      isSeeking = false;
       clearStallRecovery();
       const mediaErrorCode = player.error ? player.error.code : undefined;
       if (mediaErrorCode === 1) {
@@ -1930,6 +1979,8 @@ if (typeof document !== "undefined") {
     tvGuideStatus: document.getElementById("tv-guide-status"),
     keepAwakeButton: document.getElementById("keep-awake"),
     fullscreenButton: document.getElementById("fullscreen-player"),
+    seekBackwardButton: document.getElementById("seek-backward"),
+    seekForwardButton: document.getElementById("seek-forward"),
     authPanel: document.getElementById("auth-panel"),
     libraryPanel: document.getElementById("library-panel"),
     pairFireTvButton: document.getElementById("pair-fire-tv"),

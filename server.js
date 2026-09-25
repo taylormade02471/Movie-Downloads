@@ -1355,6 +1355,7 @@ if (require.main === module) {
 
 module.exports = {
   createAppContext,
+  createPlaybackResolver,
   createRequestHandler,
   createServer,
   ensureReadableFile,

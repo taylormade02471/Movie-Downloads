@@ -23,6 +23,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import androidx.media3.common.MediaItem;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
@@ -436,7 +437,14 @@ public class MainActivity extends Activity {
         PlayerView playerView = new PlayerView(this);
         playerView.setKeepScreenOn(true);
         startKeepScreenOn();
-        player = new ExoPlayer.Builder(this).build();
+        DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
+                .setBufferDurationsMs(30_000, 300_000, 2_500, 5_000)
+                .build();
+        player = new ExoPlayer.Builder(this)
+                .setLoadControl(loadControl)
+                .build();
+        playerView.setShowRewindButton(true);
+        playerView.setShowFastForwardButton(true);
         playerView.setPlayer(player);
         playerScreen.addView(playerView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -489,9 +497,28 @@ public class MainActivity extends Activity {
         player.play();
     }
 
+    private boolean seekBy(long offsetMs) {
+        if (player == null || !player.isCurrentMediaItemSeekable()) {
+            return false;
+        }
+        long duration = player.getDuration();
+        long target = Math.max(0L, player.getCurrentPosition() + offsetMs);
+        if (duration != androidx.media3.common.C.TIME_UNSET) {
+            target = Math.min(target, duration);
+        }
+        player.seekTo(target);
+        return true;
+    }
+
     @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK && player != null) {
+        public boolean onKeyDown(int keyCode, KeyEvent event) {
+            if (keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD && seekBy(30_000L)) {
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_MEDIA_REWIND && seekBy(-10_000L)) {
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_BACK && player != null) {
             if (playerFullscreen) {
                 leavePlayerFullscreen();
                 return true;
