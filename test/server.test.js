@@ -253,6 +253,21 @@ test("logs in, lists nested local movies, resolves playback, and logs out", asyn
   });
   assert.equal(headResponse.status, 200);
 
+  const secondAuthResponse = await login(port);
+  const secondSessionCookie = secondAuthResponse.headers.get("set-cookie");
+  const [viewerOneResponse, viewerTwoResponse] = await Promise.all([
+    fetch(`http://127.0.0.1:${port}/api/stream/Collections/Family-Night.mp4`, {
+      headers: { Cookie: sessionCookie, Range: "bytes=0-2" },
+    }),
+    fetch(`http://127.0.0.1:${port}/api/stream/Collections/Family-Night.mp4`, {
+      headers: { Cookie: secondSessionCookie, Range: "bytes=3-5" },
+    }),
+  ]);
+  assert.equal(viewerOneResponse.status, 206);
+  assert.equal(viewerTwoResponse.status, 206);
+  assert.equal(await viewerOneResponse.text(), "abc");
+  assert.equal(await viewerTwoResponse.text(), "def");
+
   const logoutResponse = await fetch(`http://127.0.0.1:${port}/api/logout`, {
     method: "POST",
     headers: {
@@ -268,6 +283,59 @@ test("logs in, lists nested local movies, resolves playback, and logs out", asyn
     headers: { Cookie: sessionCookie },
   });
   assert.equal(afterLogoutResponse.status, 401);
+});
+
+test("coalesces simultaneous playback-link resolution for independent viewers", async (t) => {
+  let resolveCalls = 0;
+  let releaseResolution;
+  const resolutionGate = new Promise((resolve) => {
+    releaseResolution = resolve;
+  });
+  const provider = {
+    kind: "onedrive",
+    async resolvePlayback(movieId) {
+      resolveCalls += 1;
+      await resolutionGate;
+      return {
+        url: `https://download.example/${encodeURIComponent(movieId)}`,
+        expiresAt: null,
+      };
+    },
+  };
+  const server = await startServer(createAuthOptions({ provider }));
+
+  t.after(() => server.close());
+
+  const { port } = server.address();
+  const authResponse = await login(port);
+  const sessionCookie = authResponse.headers.get("set-cookie");
+  const requestOptions = {
+    method: "POST",
+    headers: {
+      Cookie: sessionCookie,
+      "Content-Type": "application/json",
+      Origin: `http://127.0.0.1:${port}`,
+    },
+    body: JSON.stringify({ movieId: "toy-story-5.mp4" }),
+  };
+
+  const responsesPromise = Promise.all([
+    fetch(`http://127.0.0.1:${port}/api/playback`, requestOptions),
+    fetch(`http://127.0.0.1:${port}/api/playback`, requestOptions),
+  ]);
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(resolveCalls, 1);
+  releaseResolution();
+
+  const responses = await responsesPromise;
+  assert.deepEqual(
+    await Promise.all(responses.map((response) => response.json())),
+    [
+      { url: "https://download.example/toy-story-5.mp4", expiresAt: null },
+      { url: "https://download.example/toy-story-5.mp4", expiresAt: null },
+    ],
+  );
 });
 
 test("issues an opaque Cast ticket that streams without the browser session and then expires", async (t) => {

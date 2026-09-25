@@ -7,6 +7,7 @@ A lightweight browser app for browsing and streaming a shared movie library behi
 - Password-protected catalog access with signed HttpOnly sessions
 - Recursive movie discovery for local files and OneDrive-backed libraries
 - Server-issued playback links so the browser can stream directly from the configured provider
+- Multiple viewers can start the same title concurrently; only duplicate in-flight link lookups are coalesced, while each browser keeps its own media connection
 - Google Cast device selection on Android and desktop Chrome using Google Home device names
 - Opaque, time-limited Cast playback tickets so TVs never receive the browser session cookie
 - Safari AirPlay support remains available for iPhone and iPad

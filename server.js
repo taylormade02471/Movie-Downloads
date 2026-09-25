@@ -864,6 +864,25 @@ function createProvider(options = {}) {
   });
 }
 
+function createPlaybackResolver(provider) {
+  const pending = new Map();
+
+  return async function resolvePlayback(movieId) {
+    const existing = pending.get(movieId);
+    if (existing) {
+      return existing;
+    }
+
+    const resolution = Promise.resolve()
+      .then(() => provider.resolvePlayback(movieId))
+      .finally(() => {
+        pending.delete(movieId);
+      });
+    pending.set(movieId, resolution);
+    return resolution;
+  };
+}
+
 function createAppContext(options = {}) {
   const authConfig = buildAuthConfig(options.auth || {});
   const store = options.store || createKeyValueStore({
@@ -908,6 +927,7 @@ function createAppContext(options = {}) {
     authConfig,
     castPlaybackManager,
     provider,
+    resolvePlayback: createPlaybackResolver(provider),
     publicDir: path.resolve(options.publicDir || path.join(__dirname, "public")),
     sessionManager: createSessionManager(store, authConfig, now, trustProxy, storageReady),
     rateLimiter: createRateLimiter(store, authConfig, now, trustProxy),
@@ -1081,7 +1101,7 @@ function createRequestHandler(options = {}) {
           throw new HttpError(400, "A movie id is required.");
         }
 
-        const playback = await context.provider.resolvePlayback(movieId);
+        const playback = await context.resolvePlayback(movieId);
         await sendJson(response, 200, playback, noStoreHeaders());
         return;
       }
@@ -1126,7 +1146,7 @@ function createRequestHandler(options = {}) {
           }
         }
 
-        const playback = await context.provider.resolvePlayback(movieId);
+        const playback = await context.resolvePlayback(movieId);
         await sendJson(response, 200, playback, noStoreHeaders());
         return;
       }
@@ -1145,7 +1165,7 @@ function createRequestHandler(options = {}) {
         const castPlayback = await context.castPlaybackManager.get(url.searchParams.get("ticket"));
 
         if (context.provider.kind !== "local") {
-          const playback = await context.provider.resolvePlayback(castPlayback.movieId);
+          const playback = await context.resolvePlayback(castPlayback.movieId);
           if (!playback?.url || !playback.url.startsWith("https://")) {
             throw new HttpError(502, "The movie provider did not return a secure playback link.");
           }
