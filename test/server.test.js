@@ -9,6 +9,7 @@ const { createApp, classifyMovie, filterMovieFolders } = require("../public/app"
 const { MemoryStore } = require("../lib/store");
 const { createOneDriveProvider } = require("../lib/providers/onedrive");
 const { movieTitleFromName, posterUrlFromTitle } = require("../lib/media");
+const { createViewerStateClient } = require("../public/viewer-state");
 
 function createTempLibrary() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "movie-room-"));
@@ -113,6 +114,29 @@ test("organizes the library into family categories and hides technical folders",
     ]).map((folder) => folder.name),
     ["Home Alone Complete Collection"],
   );
+});
+
+test("ships discovery shelves and a profile-aware viewer-state client", async () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+  assert.match(html, /id="hero-movie"/);
+  assert.match(html, /id="continue-watching-shelf"/);
+  assert.match(html, /id="recently-added-shelf"/);
+  assert.match(html, /id="movie-details-dialog"/);
+  assert.match(html, /id="mobile-nav"/);
+
+  const calls = [];
+  const client = createViewerStateClient({
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, status: 200, async json() { return { revision: 1 }; } };
+    },
+  });
+  const state = await client.load("family");
+  assert.deepEqual(state, { revision: 1 });
+  await client.apply("family", [{ type: "queueAdd", movieId: "movie-1" }]);
+  assert.equal(calls[0].url, "/api/viewer-state?profileId=family");
+  assert.equal(calls[1].options.method, "PATCH");
+  assert.match(calls[1].options.body, /queueAdd/);
 });
 
 test("serves the watch page and protects the movie catalog", async (t) => {

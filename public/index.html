@@ -708,6 +708,31 @@
         color: #b8b8b8;
       }
 
+      .hero-movie { position: relative; min-height: clamp(300px, 42vw, 540px); overflow: hidden; margin-bottom: 28px; border: 1px solid #40331b; border-radius: 18px; background: #070707; isolation: isolate; }
+      .hero-movie::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, rgba(0,0,0,.94), rgba(0,0,0,.58) 42%, rgba(0,0,0,.12) 78%, #090a0b); }
+      .hero-movie img { position: absolute; inset: 0 0 0 28%; z-index: -2; width: 72%; height: 100%; object-fit: cover; opacity: .82; mask-image: linear-gradient(90deg, transparent, black 18%, black 82%, transparent); }
+      .hero-copy { display: grid; align-content: end; min-height: inherit; width: min(620px, 78%); padding: clamp(28px, 6vw, 70px); }
+      .eyebrow { margin: 0 0 10px; color: var(--gold-soft); font-size: 12px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; }
+      .hero-copy h1, .details-copy h2 { margin: 0; color: #fff; font-size: clamp(32px, 5vw, 66px); letter-spacing: -.05em; line-height: .98; }
+      .hero-meta, .hero-description { max-width: 560px; color: #d1d1d1; }
+      .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+      .discovery-shelves { display: grid; gap: 26px; margin-top: 34px; }
+      .shelf-section { display: grid; gap: 12px; }
+      .shelf-heading { display: flex; align-items: baseline; gap: 10px; }
+      .shelf-heading h2 { margin: 0; color: #fff; font-size: 23px; }
+      .shelf-summary { color: #a7a7a7; font-size: 12px; }
+      .movie-rail { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(190px, 224px); gap: 14px; overflow-x: auto; padding: 3px 2px 10px; scroll-snap-type: x mandatory; scrollbar-color: #5a481f transparent; }
+      .movie-rail .movie-card { scroll-snap-align: start; }
+      .progress-track { height: 4px; overflow: hidden; background: #343434; }
+      .progress-track span { display: block; height: 100%; background: var(--gold); }
+      .movie-details-dialog { display: grid; grid-template-columns: minmax(160px, 240px) minmax(0, 1fr); gap: 24px; width: min(780px, calc(100% - 32px)); border: 1px solid #56431e; border-radius: 16px; padding: 26px; color: #fff; background: #141516; box-shadow: 0 24px 90px #000; }
+      .movie-details-dialog::backdrop { background: rgba(0,0,0,.8); backdrop-filter: blur(5px); }
+      .dialog-close { position: absolute; top: 12px; right: 12px; z-index: 2; border-radius: 50%; padding: 4px 11px; font-size: 22px; }
+      .details-art img { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 8px; background: #242424; }
+      .details-copy { align-self: center; }
+      .details-copy h2 { font-size: clamp(28px, 4vw, 48px); }
+      .mobile-nav { display: none; }
+
       .guidance-area {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -844,6 +869,21 @@
         .folder-chip {
           min-height: 62px;
         }
+
+        .hero-movie { min-height: 420px; }
+        .hero-movie img { inset: 0; width: 100%; height: 58%; mask-image: linear-gradient(180deg, black, transparent); }
+        .hero-movie::after { background: linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.72) 45%, #090a0b); }
+        .hero-copy { width: 100%; padding: 24px; }
+        .movie-details-dialog { grid-template-columns: 1fr; max-height: 88vh; overflow: auto; }
+        .details-art { display: none; }
+        .mobile-nav { position: fixed; right: 0; bottom: 0; left: 0; z-index: 10; display: grid; grid-template-columns: repeat(5, 1fr); padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid #333; background: rgba(14,15,16,.96); }
+        .mobile-nav button { display: grid; gap: 2px; place-items: center; padding: 6px 2px; background: transparent; color: #c6c6c6; font-size: 18px; }
+        .mobile-nav span { font-size: 10px; }
+        body { padding-bottom: 74px; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
       }
     </style>
   </head>
@@ -931,6 +971,19 @@
     </section>
 
     <main id="library-panel" class="page" hidden>
+      <section id="hero-movie" class="hero-movie" aria-labelledby="hero-title">
+        <img id="hero-backdrop" src="/movie-room-hero.png" alt="" />
+        <div class="hero-copy">
+          <p class="eyebrow">Taylor-Made Pick</p>
+          <h1 id="hero-title">Your private movie room</h1>
+          <p id="hero-meta" class="hero-meta"></p>
+          <p id="hero-description" class="hero-description">Choose a title below and settle in for the next scene.</p>
+          <div class="hero-actions">
+            <button id="hero-play" type="button">▶ Play</button>
+            <button id="hero-details" class="secondary" type="button">More info</button>
+          </div>
+        </div>
+      </section>
       <div class="library-shell">
         <section class="watch-stage" aria-label="Now playing">
           <div id="watch-placeholder" class="watch-placeholder">
@@ -980,6 +1033,21 @@
             </div>
             <div id="movie-grid" class="movie-grid" aria-live="polite"></div>
           </section>
+
+          <section class="discovery-shelves" aria-label="Streaming shelves">
+            <section class="shelf-section" aria-labelledby="continue-title">
+              <div class="shelf-heading"><h2 id="continue-title">Continue Watching</h2><span id="continue-summary" class="shelf-summary"></span></div>
+              <div id="continue-watching-shelf" class="movie-rail" aria-live="polite"></div>
+            </section>
+            <section class="shelf-section" aria-labelledby="recent-title">
+              <div class="shelf-heading"><h2 id="recent-title">Recently Added</h2></div>
+              <div id="recently-added-shelf" class="movie-rail" aria-live="polite"></div>
+            </section>
+            <section class="shelf-section" aria-labelledby="picks-title">
+              <div class="shelf-heading"><h2 id="picks-title">Taylor-Made Picks</h2></div>
+              <div id="picks-shelf" class="movie-rail" aria-live="polite"></div>
+            </section>
+          </section>
         </section>
 
         <aside class="folder-panel" aria-label="Library controls">
@@ -1026,11 +1094,37 @@
       </div>
     </main>
 
+    <dialog id="movie-details-dialog" class="movie-details-dialog" aria-labelledby="details-title">
+      <button id="details-close" class="dialog-close secondary" type="button" aria-label="Close movie details">×</button>
+      <div class="details-art"><img id="details-poster" src="/movie-room-hero.png" alt="" /></div>
+      <div class="details-copy">
+        <p class="eyebrow">Movie Room</p>
+        <h2 id="details-title">Movie details</h2>
+        <p id="details-meta" class="hero-meta"></p>
+        <p id="details-description" class="detail"></p>
+        <div class="hero-actions">
+          <button id="details-play" type="button">▶ Play</button>
+          <button id="details-watch-later" class="secondary" type="button">＋ Watch Later</button>
+          <button id="details-queue" class="secondary" type="button">Add to queue</button>
+        </div>
+        <p id="details-status" class="status" role="status" aria-live="polite"></p>
+      </div>
+    </dialog>
+
+    <nav id="mobile-nav" class="mobile-nav" aria-label="Mobile navigation">
+      <button type="button" data-mobile-action="home">⌂<span>Home</span></button>
+      <button type="button" data-mobile-action="search">⌕<span>Search</span></button>
+      <button type="button" data-mobile-action="saved">＋<span>Saved</span></button>
+      <button type="button" data-mobile-action="history">◷<span>History</span></button>
+      <button type="button" data-mobile-action="library">▦<span>Library</span></button>
+    </nav>
+
     <script>
       window.__movieRoomCastApiReady = new Promise((resolve) => {
         window.__onGCastApiAvailable = (isAvailable) => resolve(Boolean(isAvailable));
       });
     </script>
+    <script src="/viewer-state.js" defer></script>
     <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1" async></script>
     <script src="/app.js" defer></script>
   </body>

@@ -1,5 +1,8 @@
 const KIDS_MOVIE_PATTERN = /\b(?:home\s+alone|toy\s+story|paw\s+patrol|spider\s*man|superman|jurassic\s+world|magic\s+faraway\s+tree)\b/i;
 const TECHNICAL_FOLDER_PATTERN = /^(?:subs?|images?|drawable(?:[-_ ]?nodpi)?|res|src|main|java|providers?|firetv|api|cast|playback|stream|tv|pairings?|docs?|test|gradle|node_modules?|skills?|agents?|patterns?|search|commands|migrations|performance|advanced features)$/i;
+const VIEWER_STATE_API = typeof require === "function"
+  ? require("./viewer-state")
+  : (typeof window !== "undefined" ? window.MovieRoomViewerState : null);
 
 function classifyMovie(movie) {
   const source = movie || {};
@@ -66,6 +69,27 @@ function createApp({
   profileLabel,
   profileAvatar,
   profileButtons = [],
+  heroMovie,
+  heroBackdrop,
+  heroTitle,
+  heroMeta,
+  heroDescription,
+  heroPlay,
+  heroDetails,
+  continueWatchingShelf,
+  continueSummary,
+  recentlyAddedShelf,
+  picksShelf,
+  movieDetailsDialog,
+  detailsClose,
+  detailsPoster,
+  detailsTitle,
+  detailsMeta,
+  detailsDescription,
+  detailsPlay,
+  detailsWatchLater,
+  detailsQueue,
+  detailsStatus,
   fetchImpl,
   locationOrigin,
   createOption,
@@ -90,6 +114,8 @@ function createApp({
   let isSeeking = false;
   let allMovies = [];
   let allFolders = [];
+  let viewerState = { movies: {}, queue: [], settings: {} };
+  let detailsMovie = null;
   let activeFolder = "all";
   let activeCategory = "recent";
   let searchTerm = "";
@@ -111,6 +137,12 @@ function createApp({
     family: { label: "Family", initial: "F" },
     guest: { label: "Guest", initial: "G" },
   };
+  const viewerStateClient = VIEWER_STATE_API && typeof VIEWER_STATE_API.createViewerStateClient === "function"
+    ? VIEWER_STATE_API.createViewerStateClient({
+      fetchImpl,
+      onUnauthorized: () => setAuthenticated(false),
+    })
+    : null;
 
   function hasMethod(value, methodName) {
     return Boolean(value && typeof value[methodName] === "function");
@@ -989,6 +1021,58 @@ function createApp({
       });
     }
 
+    if (detailsClose && movieDetailsDialog) {
+      detailsClose.addEventListener("click", () => {
+        if (typeof movieDetailsDialog.close === "function") movieDetailsDialog.close();
+        else movieDetailsDialog.removeAttribute("open");
+      });
+    }
+    if (detailsPlay) {
+      detailsPlay.addEventListener("click", () => {
+        if (!detailsMovie) return;
+        if (movieDetailsDialog && typeof movieDetailsDialog.close === "function") movieDetailsDialog.close();
+        movieSelect.value = detailsMovie.id;
+        playSelectedMovie({ scrollToPlayer: true }).catch((error) => updateStatus(error.message));
+      });
+    }
+    if (detailsWatchLater) {
+      detailsWatchLater.addEventListener("click", async () => {
+        if (!detailsMovie || !viewerStateClient) return;
+        try {
+          viewerState = await viewerStateClient.apply(activeProfile, [{ type: "setFlag", movieId: detailsMovie.id, flag: "watchLater", value: true }]);
+          detailsStatus.textContent = "Added to Watch Later.";
+          renderDiscovery();
+        } catch (error) { detailsStatus.textContent = error.message; }
+      });
+    }
+    if (detailsQueue) {
+      detailsQueue.addEventListener("click", async () => {
+        if (!detailsMovie || !viewerStateClient) return;
+        try {
+          viewerState = await viewerStateClient.apply(activeProfile, [{ type: "queueAdd", movieId: detailsMovie.id }]);
+          detailsStatus.textContent = "Added to your queue.";
+        } catch (error) { detailsStatus.textContent = error.message; }
+      });
+    }
+    if (movieDetailsDialog) {
+      movieDetailsDialog.addEventListener("click", (event) => {
+        if (event.target === movieDetailsDialog) {
+          if (typeof movieDetailsDialog.close === "function") movieDetailsDialog.close();
+          else movieDetailsDialog.removeAttribute("open");
+        }
+      });
+    }
+    if (documentRef && typeof documentRef.querySelectorAll === "function") {
+      for (const button of documentRef.querySelectorAll("[data-mobile-action]")) {
+        button.addEventListener("click", () => {
+          const action = button.dataset.mobileAction;
+          if (action === "search" && searchInput) searchInput.focus();
+          if (action === "home" && heroMovie) heroMovie.scrollIntoView({ behavior: "smooth", block: "start" });
+          if (action === "library" && movieGrid) movieGrid.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      }
+    }
+
     for (const movie of movies) {
       if (!movie.folder) {
         continue;
@@ -1224,11 +1308,159 @@ function createApp({
     movieGrid.replaceChildren(...cards);
   }
 
+  function viewerRecord(movieId) {
+    return viewerState && viewerState.movies && viewerState.movies[movieId]
+      ? viewerState.movies[movieId]
+      : null;
+  }
+
+  function progressPercent(record) {
+    if (!record || !Number.isFinite(record.durationSeconds) || record.durationSeconds <= 0) {
+      return 0;
+    }
+    return Math.max(0, Math.min(100, (Number(record.positionSeconds) || 0) / record.durationSeconds * 100));
+  }
+
+  function remainingLabel(record) {
+    if (!record || !Number.isFinite(record.durationSeconds) || record.durationSeconds <= 0) {
+      return "Resume movie";
+    }
+    const remaining = Math.max(0, Math.round(record.durationSeconds - (Number(record.positionSeconds) || 0)));
+    const hours = Math.floor(remaining / 3600);
+    const minutes = Math.floor((remaining % 3600) / 60);
+    return hours ? `${hours}h ${minutes}m remaining` : `${minutes} min remaining`;
+  }
+
+  function openMovieDetails(movie) {
+    if (!movie) {
+      return;
+    }
+    detailsMovie = movie;
+    if (detailsPoster) {
+      detailsPoster.src = movie.posterUrl || "/movie-room-hero.png";
+      detailsPoster.alt = posterAltText(movie);
+    }
+    if (detailsTitle) {
+      detailsTitle.textContent = movie.title || movie.fileName || "Movie details";
+    }
+    if (detailsMeta) {
+      detailsMeta.textContent = [movie.year, movie.rating, movie.runtime].filter(Boolean).join(" • ") || movieFolderLabel(movie);
+    }
+    if (detailsDescription) {
+      detailsDescription.textContent = movie.description || `Watch ${movie.title || movie.fileName || "this movie"} in your private Movie Room.`;
+    }
+    if (detailsStatus) {
+      detailsStatus.textContent = "";
+    }
+    if (movieDetailsDialog && typeof movieDetailsDialog.showModal === "function") {
+      movieDetailsDialog.showModal();
+    } else if (movieDetailsDialog) {
+      movieDetailsDialog.setAttribute("open", "");
+    }
+  }
+
+  function createShelfCard(movie, shelf) {
+    const documentRef = shelf.ownerDocument;
+    const card = documentRef.createElement("button");
+    const ready = (Number(movie.size) || 0) > 0;
+    card.type = "button";
+    card.className = ready ? "movie-card" : "movie-card unavailable";
+    card.disabled = !ready;
+    card.dataset.movieId = movie.id;
+    const poster = documentRef.createElement("span");
+    poster.className = "poster";
+    const fallback = documentRef.createElement("span");
+    fallback.className = "poster-fallback";
+    const initials = documentRef.createElement("strong");
+    initials.textContent = movieInitials(movie);
+    const fallbackTitle = documentRef.createElement("span");
+    fallbackTitle.textContent = movie.title || movie.fileName || "Movie";
+    fallback.append(initials, fallbackTitle);
+    poster.append(fallback);
+    if (movie.posterUrl) {
+      const image = documentRef.createElement("img");
+      image.alt = posterAltText(movie);
+      image.loading = "lazy";
+      image.src = movie.posterUrl;
+      image.addEventListener("error", () => image.remove(), { once: true });
+      poster.prepend(image);
+    }
+    const info = documentRef.createElement("span");
+    info.className = "movie-info";
+    const title = documentRef.createElement("span");
+    title.className = "movie-title";
+    title.textContent = movie.title || movie.fileName || "Untitled movie";
+    const meta = documentRef.createElement("span");
+    meta.className = "movie-meta";
+    meta.textContent = shelf === "continue" ? remainingLabel(viewerRecord(movie.id)) : movieFolderLabel(movie);
+    info.append(title, meta);
+    const record = viewerRecord(movie.id);
+    if (shelf === "continue" && record) {
+      const track = documentRef.createElement("span");
+      track.className = "progress-track";
+      const fill = documentRef.createElement("span");
+      fill.style.width = `${progressPercent(record)}%`;
+      track.append(fill);
+      info.append(track);
+    }
+    card.append(poster, info);
+    card.addEventListener("click", () => {
+      movieSelect.value = movie.id;
+      rememberMovieForProfile(movie.id);
+      updateNowPlaying(movie);
+      playSelectedMovie({ scrollToPlayer: true }).catch((error) => updateStatus(error.message));
+    });
+    return card;
+  }
+
+  function renderShelf(shelf, movies, emptyText) {
+    if (!shelf || typeof shelf.replaceChildren !== "function") {
+      return;
+    }
+    if (!movies.length) {
+      const empty = shelf.ownerDocument.createElement("p");
+      empty.className = "empty-state";
+      empty.textContent = emptyText;
+      shelf.replaceChildren(empty);
+      return;
+    }
+    shelf.replaceChildren(...movies.map((movie) => createShelfCard(movie, shelf === continueWatchingShelf ? "continue" : "recent")));
+  }
+
+  function renderDiscovery() {
+    const playable = allMovies.filter((movie) => (Number(movie.size) || 0) > 0);
+    const continueMovies = playable
+      .filter((movie) => {
+        const record = viewerRecord(movie.id);
+        return record && record.positionSeconds > 0 && !record.completedAt;
+      })
+      .sort((left, right) => (viewerRecord(right.id).lastWatchedAt || 0) - (viewerRecord(left.id).lastWatchedAt || 0));
+    const recentMovies = [...playable].slice().reverse();
+    const picks = playable.filter((movie) => classifyMovie(movie) === "kids").concat(playable.filter((movie) => classifyMovie(movie) !== "kids")).slice(0, 12);
+    renderShelf(continueWatchingShelf, continueMovies, "Start a movie and your progress will appear here.");
+    renderShelf(recentlyAddedShelf, recentMovies, "Newly uploaded movies will appear here.");
+    renderShelf(picksShelf, picks, "Your library is ready for its first pick.");
+    if (continueSummary) {
+      continueSummary.textContent = continueMovies.length ? `${continueMovies.length} in progress` : "Nothing started yet";
+    }
+    const featured = picks[0] || playable[0];
+    if (featured) {
+      if (heroMovie) heroMovie.hidden = false;
+      if (heroBackdrop) { heroBackdrop.src = featured.backdropUrl || featured.posterUrl || "/movie-room-hero.png"; heroBackdrop.alt = `${featured.title || "Featured movie"} backdrop`; }
+      if (heroTitle) heroTitle.textContent = featured.title || featured.fileName || "Featured movie";
+      if (heroMeta) heroMeta.textContent = [featured.year, featured.rating, featured.runtime, movieFolderLabel(featured)].filter(Boolean).join(" • ");
+      if (heroDescription) heroDescription.textContent = featured.description || "A Taylor-Made pick from your private movie collection.";
+      if (heroPlay) heroPlay.onclick = () => { movieSelect.value = featured.id; playSelectedMovie({ scrollToPlayer: true }).catch((error) => updateStatus(error.message)); };
+      if (heroDetails) heroDetails.onclick = () => openMovieDetails(featured);
+    }
+  }
+
   function renderLibrary() {
     updateLibrarySummary(allMovies);
     renderCategoryShelf();
     renderFolderShelf();
     renderMovieGrid();
+    renderDiscovery();
   }
 
   async function handleApiResponse(response, fallbackMessage) {
@@ -1263,6 +1495,14 @@ function createApp({
   async function loadLibrary(selectedMovieId = movieSelect.value) {
     updateStatus("Loading library…");
     movieSelect.disabled = true;
+
+    if (viewerStateClient && continueWatchingShelf) {
+      try {
+        viewerState = await viewerStateClient.load(activeProfile);
+      } catch {
+        viewerState = { movies: {}, queue: [], settings: {} };
+      }
+    }
 
     const response = await handleApiResponse(
       await fetchImpl("/api/library", { credentials: "same-origin" }),
@@ -1735,6 +1975,7 @@ function createApp({
           updateNowPlaying(null);
           updateStatus("Choose a movie to start streaming.");
         }
+        loadLibrary(movieSelect.value).catch(() => {});
       });
     }
 
@@ -2040,6 +2281,27 @@ if (typeof document !== "undefined") {
     profileLabel: document.getElementById("profile-label"),
     profileAvatar: document.getElementById("profile-avatar"),
     profileButtons: Array.from(document.querySelectorAll("[data-viewer-profile]")),
+    heroMovie: document.getElementById("hero-movie"),
+    heroBackdrop: document.getElementById("hero-backdrop"),
+    heroTitle: document.getElementById("hero-title"),
+    heroMeta: document.getElementById("hero-meta"),
+    heroDescription: document.getElementById("hero-description"),
+    heroPlay: document.getElementById("hero-play"),
+    heroDetails: document.getElementById("hero-details"),
+    continueWatchingShelf: document.getElementById("continue-watching-shelf"),
+    continueSummary: document.getElementById("continue-summary"),
+    recentlyAddedShelf: document.getElementById("recently-added-shelf"),
+    picksShelf: document.getElementById("picks-shelf"),
+    movieDetailsDialog: document.getElementById("movie-details-dialog"),
+    detailsClose: document.getElementById("details-close"),
+    detailsPoster: document.getElementById("details-poster"),
+    detailsTitle: document.getElementById("details-title"),
+    detailsMeta: document.getElementById("details-meta"),
+    detailsDescription: document.getElementById("details-description"),
+    detailsPlay: document.getElementById("details-play"),
+    detailsWatchLater: document.getElementById("details-watch-later"),
+    detailsQueue: document.getElementById("details-queue"),
+    detailsStatus: document.getElementById("details-status"),
     fetchImpl: fetch,
     locationOrigin: window.location.origin,
     createOption: () => document.createElement("option"),
