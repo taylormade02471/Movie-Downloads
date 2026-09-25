@@ -8,6 +8,16 @@ import org.junit.Test;
 
 public class MovieRoomModelsTest {
     @Test
+    public void parsesViewerStateAndClampsProgress() throws Exception {
+        ViewerState state = ViewerState.fromJson(
+                "{\"profileId\":\"family\",\"revision\":2,\"movies\":{\"movie-1\":{\"positionSeconds\":90,\"durationSeconds\":60,\"favorite\":true}},\"queue\":[\"movie-1\"]}");
+
+        assertEquals("family", state.profileId);
+        assertEquals(60L, state.movies.get("movie-1").positionSeconds);
+        assertTrue(state.movies.get("movie-1").favorite);
+        assertEquals(1, state.queue.size());
+    }
+    @Test
     public void parsesPairingStatusApprovedWithDeviceToken() throws Exception {
         MovieRoomModels.PairingStatus status = MovieRoomModels.PairingStatus.fromJson(
                 "{\"status\":\"approved\",\"deviceId\":\"device-1\",\"deviceToken\":\"device-1.secret\"}");

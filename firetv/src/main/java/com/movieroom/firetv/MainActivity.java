@@ -24,6 +24,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
@@ -35,6 +36,9 @@ import com.google.zxing.qrcode.QRCodeWriter;
 
 import java.security.SecureRandom;
 import java.util.Locale;
+import java.util.ArrayList;
+import java.util.List;
+import org.json.JSONObject;
 
 public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -46,6 +50,9 @@ public class MainActivity extends Activity {
     private View playerOverlay;
     private boolean playerFullscreen = false;
     private int pairingGeneration = 0;
+    private final PlaybackProgressStore progressStore = new PlaybackProgressStore();
+    private ViewerState viewerState;
+    private MovieRoomModels.Movie activeMovie;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -334,8 +341,22 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             try {
                 MovieRoomModels.Library library = api.loadLibrary(tokenStore.getDeviceToken());
+                ViewerState state = null;
+                try {
+                    state = api.getViewerState(tokenStore.getDeviceToken());
+                    viewerState = state;
+                } catch (Exception ignored) {
+                    // A viewer-state outage should not hide the movie library.
+                }
+                final ViewerState loadedState = state;
                 handler.post(() -> {
-                    status.setText(library.movies.size() + " movies found");
+                    int inProgress = 0;
+                    if (loadedState != null) {
+                        for (ViewerState.MovieRecord record : loadedState.movies.values()) {
+                            if (record.positionSeconds > 0 && !record.completed) inProgress++;
+                        }
+                    }
+                    status.setText(library.movies.size() + " movies found" + (inProgress > 0 ? "  •  " + inProgress + " continue watching" : ""));
                     grid.removeAllViews();
                     for (MovieRoomModels.Movie movie : library.movies) {
                         grid.addView(movieCard(movie, status));
@@ -445,7 +466,12 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             try {
                 MovieRoomModels.Playback playback = api.startPlayback(tokenStore.getDeviceToken(), movie.id);
-                handler.post(() -> showPlayer(playback, movie));
+                try {
+                    ViewerState state = api.getViewerState(tokenStore.getDeviceToken());
+                    handler.post(() -> showPlayer(playback, movie, state));
+                } catch (Exception ignored) {
+                    handler.post(() -> showPlayer(playback, movie, null));
+                }
             } catch (MovieRoomApi.MovieRoomApiException error) {
                 handler.post(() -> status.setText(error.statusCode == 409
                         ? "Movie is still uploading."
@@ -456,12 +482,14 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private void showPlayer(MovieRoomModels.Playback playback, MovieRoomModels.Movie movie) {
+    private void showPlayer(MovieRoomModels.Playback playback, MovieRoomModels.Movie movie, ViewerState state) {
         if (player != null) {
             player.release();
         }
 
         playerFullscreen = false;
+        activeMovie = movie;
+        viewerState = state;
         FrameLayout playerScreen = new FrameLayout(this);
         playerScreen.setBackgroundColor(0xff000000);
         PlayerView playerView = new PlayerView(this);
@@ -524,7 +552,54 @@ public class MainActivity extends Activity {
 
         player.setMediaItem(MediaItem.fromUri(Uri.parse(playback.url)));
         player.prepare();
+        if (state != null && state.movies.containsKey(movie.id) && state.settings.resumeEnabled) {
+            ViewerState.MovieRecord record = state.movies.get(movie.id);
+            player.addListener(new Player.Listener() {
+                private boolean restored;
+                @Override public void onPlaybackStateChanged(int playbackState) {
+                    if (!restored && playbackState == Player.STATE_READY && record.positionSeconds > 0) {
+                        player.seekTo(record.positionSeconds * 1000L);
+                        restored = true;
+                    }
+                    if (playbackState == Player.STATE_ENDED) flushProgress(movie, true);
+                }
+            });
+        }
+        player.addListener(new Player.Listener() {
+            @Override public void onIsPlayingChanged(boolean isPlaying) {
+                if (!isPlaying) flushProgress(movie, false);
+            }
+        });
         player.play();
+    }
+
+    private void flushProgress(MovieRoomModels.Movie movie, boolean completed) {
+        if (player == null || movie == null) return;
+        long position = Math.max(0L, player.getCurrentPosition());
+        long duration = Math.max(0L, player.getDuration());
+        if (duration <= 0L) return;
+        progressStore.checkpoint(movie.id, position, duration);
+        new Thread(() -> {
+            try {
+                JSONObject progress = new JSONObject();
+                progress.put("type", "progress");
+                progress.put("movieId", movie.id);
+                progress.put("positionSeconds", position / 1000d);
+                progress.put("durationSeconds", duration / 1000d);
+                List<JSONObject> operations = new ArrayList<>();
+                operations.add(progress);
+                if (completed || position >= duration * 0.9d) {
+                    JSONObject done = new JSONObject();
+                    done.put("type", "setCompleted");
+                    done.put("movieId", movie.id);
+                    done.put("value", true);
+                    operations.add(done);
+                }
+                viewerState = api.applyViewerOperations(tokenStore.getDeviceToken(), operations);
+            } catch (Exception ignored) {
+                // Keep the local checkpoint for the next lifecycle flush.
+            }
+        }).start();
     }
 
     private boolean seekBy(long offsetMs) {
@@ -554,6 +629,7 @@ public class MainActivity extends Activity {
                 return true;
             }
             player.release();
+            flushProgress(activeMovie, false);
             player = null;
             playerOverlay = null;
             showLibraryScreen();

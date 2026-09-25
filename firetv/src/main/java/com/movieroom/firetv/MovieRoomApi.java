@@ -10,6 +10,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 public final class MovieRoomApi {
     private static final int CONNECT_TIMEOUT_MS = 10_000;
@@ -40,6 +41,18 @@ public final class MovieRoomApi {
         JSONObject body = new JSONObject();
         body.put("movieId", movieId);
         return MovieRoomModels.Playback.fromJson(request("POST", "/api/tv/playback", deviceToken, body.toString()));
+    }
+
+    public ViewerState getViewerState(String deviceToken) throws Exception {
+        return ViewerState.fromJson(request("GET", "/api/tv/viewer-state", deviceToken, ""));
+    }
+
+    public ViewerState applyViewerOperations(String deviceToken, List<JSONObject> operations) throws Exception {
+        JSONObject body = new JSONObject();
+        org.json.JSONArray array = new org.json.JSONArray();
+        for (JSONObject operation : operations) array.put(operation);
+        body.put("operations", array);
+        return ViewerState.fromJson(request("PATCH", "/api/tv/viewer-state", deviceToken, body.toString()));
     }
 
     public byte[] downloadPoster(String posterUrl) throws Exception {

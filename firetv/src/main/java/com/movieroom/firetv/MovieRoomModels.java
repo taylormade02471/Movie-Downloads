@@ -74,9 +74,15 @@ public final class MovieRoomModels {
 
     public static final class Library {
         public final List<Movie> movies;
+        public final List<String> folders;
 
         public Library(List<Movie> movies) {
+            this(movies, new ArrayList<>());
+        }
+
+        public Library(List<Movie> movies, List<String> folders) {
             this.movies = movies;
+            this.folders = folders;
         }
 
         public static Library fromJson(String json) throws Exception {
@@ -95,7 +101,15 @@ public final class MovieRoomModels {
                             movie.optLong("size", 0L)));
                 }
             }
-            return new Library(movies);
+            List<String> folders = new ArrayList<>();
+            JSONArray foldersArray = object.optJSONArray("folders");
+            if (foldersArray != null) {
+                for (int index = 0; index < foldersArray.length(); index++) {
+                    JSONObject folder = foldersArray.optJSONObject(index);
+                    if (folder != null) folders.add(folder.optString("path", folder.optString("name", "")));
+                }
+            }
+            return new Library(movies, folders);
         }
     }
 
