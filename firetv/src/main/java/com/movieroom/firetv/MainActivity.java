@@ -22,6 +22,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
@@ -68,11 +69,24 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        flushProgress(activeMovie, false);
         stopKeepScreenOn();
         if (player != null) {
             player.release();
         }
         super.onDestroy();
+    }
+
+    @Override
+    protected void onPause() {
+        flushProgress(activeMovie, false);
+        super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (player != null) startKeepScreenOn();
     }
 
     private void setScreen() {
@@ -568,6 +582,10 @@ public class MainActivity extends Activity {
         player.addListener(new Player.Listener() {
             @Override public void onIsPlayingChanged(boolean isPlaying) {
                 if (!isPlaying) flushProgress(movie, false);
+            }
+
+            @Override public void onPlayerError(androidx.media3.common.PlaybackException error) {
+                Toast.makeText(MainActivity.this, "This movie could not play. Try again or choose an MP4 copy.", Toast.LENGTH_LONG).show();
             }
         });
         player.play();
