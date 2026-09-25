@@ -90,6 +90,11 @@ function createApp({
   detailsWatchLater,
   detailsQueue,
   detailsStatus,
+  theaterModeButton,
+  miniplayerModeButton,
+  upNextPanel,
+  upNextTitle,
+  upNextPlay,
   fetchImpl,
   locationOrigin,
   createOption,
@@ -116,6 +121,10 @@ function createApp({
   let allFolders = [];
   let viewerState = { movies: {}, queue: [], settings: {} };
   let detailsMovie = null;
+  let playerMode = "normal";
+  let progressTimer = null;
+  let restoredMovieId = "";
+  let progressWriteInFlight = null;
   let activeFolder = "all";
   let activeCategory = "recent";
   let searchTerm = "";
@@ -884,6 +893,29 @@ function createApp({
     if (fullscreenButton) {
       fullscreenButton.disabled = !authenticated;
     }
+
+    if (theaterModeButton) theaterModeButton.addEventListener("click", () => setPlayerMode(playerMode === "theater" ? "normal" : "theater"));
+    if (miniplayerModeButton) miniplayerModeButton.addEventListener("click", () => setPlayerMode(playerMode === "miniplayer" ? "normal" : "miniplayer"));
+    if (upNextPlay) upNextPlay.addEventListener("click", () => playNextFromQueue());
+
+    if (documentRef && typeof documentRef.addEventListener === "function") {
+      documentRef.addEventListener("keydown", (event) => {
+        const target = event.target;
+        const tag = target && target.tagName ? String(target.tagName).toLowerCase() : "";
+        if (tag === "input" || tag === "textarea" || (target && target.isContentEditable)) return;
+        const key = String(event.key || "").toLowerCase();
+        if (key === " " || key === "k") { event.preventDefault(); if (player.paused) player.play(); else player.pause(); }
+        else if (key === "j") seekPlayerBy(-10);
+        else if (key === "l") seekPlayerBy(30);
+        else if (key === "f") openFullscreenPlayer();
+        else if (key === "t") setPlayerMode(playerMode === "theater" ? "normal" : "theater");
+        else if (key === "i") setPlayerMode(playerMode === "miniplayer" ? "normal" : "miniplayer");
+        else if (key === "m") player.muted = !player.muted;
+        else if (key === "escape" && playerMode !== "normal") setPlayerMode("normal");
+        else if (key === "/" && searchInput) { event.preventDefault(); searchInput.focus(); }
+      });
+      documentRef.addEventListener("pagehide", () => { savePlaybackProgress("pagehide").catch(() => {}); });
+    }
     if (pairFireTvButton) {
       pairFireTvButton.disabled = !authenticated;
     }
@@ -1453,6 +1485,12 @@ function createApp({
       if (heroPlay) heroPlay.onclick = () => { movieSelect.value = featured.id; playSelectedMovie({ scrollToPlayer: true }).catch((error) => updateStatus(error.message)); };
       if (heroDetails) heroDetails.onclick = () => openMovieDetails(featured);
     }
+    if (upNextPanel) {
+      const next = (viewerState.queue || []).map((id) => playable.find((movie) => movie.id === id)).find(Boolean);
+      upNextPanel.hidden = !next;
+      if (next && upNextTitle) upNextTitle.textContent = next.title || next.fileName || "Next movie";
+      if (next && upNextPlay) upNextPlay.onclick = () => { movieSelect.value = next.id; playSelectedMovie({ scrollToPlayer: true }).catch((error) => updateStatus(error.message)); };
+    }
   }
 
   function renderLibrary() {
@@ -1461,6 +1499,60 @@ function createApp({
     renderFolderShelf();
     renderMovieGrid();
     renderDiscovery();
+  }
+
+  function setPlayerMode(mode) {
+    const allowed = new Set(["normal", "theater", "miniplayer"]);
+    playerMode = allowed.has(mode) ? mode : "normal";
+    if (libraryPanel && libraryPanel.classList) {
+      libraryPanel.classList.toggle("theater-mode", playerMode === "theater");
+      libraryPanel.classList.toggle("miniplayer-mode", playerMode === "miniplayer");
+    }
+    if (theaterModeButton) theaterModeButton.textContent = playerMode === "theater" ? "Exit theater" : "Theater";
+    if (miniplayerModeButton) miniplayerModeButton.textContent = playerMode === "miniplayer" ? "Return to player" : "Miniplayer";
+    return playerMode;
+  }
+
+  function scheduleProgressSave() {
+    if (progressTimer !== null) return;
+    progressTimer = setTimeoutImpl(() => {
+      progressTimer = null;
+      savePlaybackProgress("interval").catch(() => {});
+    }, 15000);
+  }
+
+  async function savePlaybackProgress(reason = "checkpoint") {
+    if (!viewerStateClient || !authenticated || !movieSelect.value || !Number.isFinite(player.currentTime)) return null;
+    const movieId = movieSelect.value;
+    const durationSeconds = Number.isFinite(player.duration) ? Math.max(0, player.duration) : 0;
+    if (durationSeconds <= 0) return null;
+    const completed = reason === "ended" || player.ended || player.currentTime >= durationSeconds * 0.9;
+    const operations = [{ type: "progress", movieId, positionSeconds: player.currentTime, durationSeconds, playbackStatus: completed ? "completed" : player.paused ? "paused" : "playing" }];
+    if (completed) operations.push({ type: "setCompleted", movieId, value: true });
+    if (progressWriteInFlight) await progressWriteInFlight;
+    progressWriteInFlight = viewerStateClient.apply(activeProfile, operations)
+      .then((state) => { viewerState = state; renderDiscovery(); return state; })
+      .finally(() => { progressWriteInFlight = null; });
+    return progressWriteInFlight;
+  }
+
+  function restorePlaybackProgress(movieId) {
+    if (restoredMovieId === movieId) return;
+    const record = viewerRecord(movieId);
+    if (!record || !Number.isFinite(record.positionSeconds) || record.positionSeconds <= 0 || !Number.isFinite(player.duration)) return;
+    restoredMovieId = movieId;
+    try { player.currentTime = Math.min(record.positionSeconds, Math.max(player.duration - 0.1, 0)); } catch { /* browser may reject a seek before metadata */ }
+  }
+
+  function playNextFromQueue() {
+    const currentId = movieSelect.value;
+    const queue = Array.isArray(viewerState.queue) ? viewerState.queue : [];
+    const nextId = queue.find((movieId) => movieId !== currentId && allMovies.some((movie) => movie.id === movieId && (Number(movie.size) || 0) > 0));
+    const next = allMovies.find((movie) => movie.id === nextId) || allMovies.find((movie) => movie.id !== currentId && (Number(movie.size) || 0) > 0);
+    if (!next) return false;
+    movieSelect.value = next.id;
+    playSelectedMovie({ scrollToPlayer: true }).catch((error) => updateStatus(error.message));
+    return true;
   }
 
   async function handleApiResponse(response, fallbackMessage) {
@@ -1570,10 +1662,14 @@ function createApp({
   async function playSelectedMovie({ isRefresh = false, expectedMovieId = null, resumeState = null, scrollToPlayer = false } = {}) {
     const movieId = expectedMovieId || movieSelect.value;
     if (!isRefresh) {
+      if (movieSelect.value && movieSelect.value !== movieId) {
+        await savePlaybackProgress("movie-switch").catch(() => {});
+      }
       clearStallRecovery();
       playbackRefreshAttempts = 0;
       resumeAfterRefresh = null;
       stableRefreshPosition = null;
+      restoredMovieId = "";
     }
 
     if (!movieId || (expectedMovieId && movieSelect.value !== expectedMovieId)) {
@@ -2146,20 +2242,25 @@ function createApp({
       }
 
       updateBufferStatus();
+      scheduleProgressSave();
     });
 
     player.addEventListener("pause", () => {
       clearStallRecovery();
       updatePlaybackState("paused");
+      savePlaybackProgress("pause").catch(() => {});
     });
     player.addEventListener("ended", () => {
       isSeeking = false;
       clearStallRecovery();
       updatePlaybackState("none");
       releaseWakeLock().catch(() => {});
+      savePlaybackProgress("ended").catch(() => {});
+      if (viewerState.settings && viewerState.settings.autoplayNext) playNextFromQueue();
     });
 
     player.addEventListener("loadedmetadata", () => {
+      restorePlaybackProgress(movieSelect.value);
       if (!resumeAfterRefresh) {
         return;
       }
@@ -2231,6 +2332,10 @@ function createApp({
     loadSession,
     movieLabel,
     playSelectedMovie,
+    playNextFromQueue,
+    restorePlaybackProgress,
+    savePlaybackProgress,
+    setPlayerMode,
     setAuthenticated,
     updateStatus,
   };
@@ -2302,6 +2407,11 @@ if (typeof document !== "undefined") {
     detailsWatchLater: document.getElementById("details-watch-later"),
     detailsQueue: document.getElementById("details-queue"),
     detailsStatus: document.getElementById("details-status"),
+    theaterModeButton: document.getElementById("theater-mode"),
+    miniplayerModeButton: document.getElementById("miniplayer-mode"),
+    upNextPanel: document.getElementById("up-next-panel"),
+    upNextTitle: document.getElementById("up-next-title"),
+    upNextPlay: document.getElementById("up-next-play"),
     fetchImpl: fetch,
     locationOrigin: window.location.origin,
     createOption: () => document.createElement("option"),

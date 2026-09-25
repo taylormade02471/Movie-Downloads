@@ -139,6 +139,14 @@ test("ships discovery shelves and a profile-aware viewer-state client", async ()
   assert.match(calls[1].options.body, /queueAdd/);
 });
 
+test("exposes synchronized playback controls and player modes", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+  assert.match(html, /id="theater-mode"/);
+  assert.match(html, /id="miniplayer-mode"/);
+  assert.match(html, /id="up-next-panel"/);
+  assert.match(html, /data-key="j"/i);
+});
+
 test("serves the watch page and protects the movie catalog", async (t) => {
   const { root, moviesDir, publicDir } = createTempLibrary();
   fs.writeFileSync(path.join(moviesDir, "Family-Night.mp4"), "abcdef");

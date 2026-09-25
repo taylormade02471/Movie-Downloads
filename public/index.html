@@ -732,6 +732,11 @@
       .details-copy { align-self: center; }
       .details-copy h2 { font-size: clamp(28px, 4vw, 48px); }
       .mobile-nav { display: none; }
+      .library-panel.theater-mode .watch-stage { width: 100%; }
+      .library-panel.theater-mode .folder-panel, .library-panel.theater-mode .guidance-area { display: none; }
+      .library-panel.miniplayer-mode .player-frame { position: fixed; right: 18px; bottom: 18px; z-index: 12; width: min(360px, calc(100vw - 36px)); border-color: var(--gold); box-shadow: 0 18px 50px #000; }
+      .up-next-panel { display: grid; gap: 8px; margin-top: 14px; border: 1px solid #302b20; border-radius: 12px; padding: 14px; background: #111212; }
+      .up-next-panel h2 { margin: 0; font-size: 18px; }
 
       .guidance-area {
         display: grid;
@@ -1012,16 +1017,24 @@
             <h1 id="now-playing-title">Choose a movie</h1>
             <p id="now-playing-detail" class="now-playing-detail">Select a thumbnail below to start streaming.</p>
             <div class="player-actions" aria-label="TV and phone playback controls">
-              <button id="seek-backward" class="secondary" type="button" aria-label="Rewind 10 seconds">−10 sec</button>
+              <button id="seek-backward" class="secondary" type="button" data-key="j" aria-label="Rewind 10 seconds">−10 sec</button>
               <button id="seek-forward" class="secondary" type="button" aria-label="Fast forward 30 seconds">+30 sec</button>
               <button id="cast-tv" type="button">Cast / AirPlay</button>
               <button id="pair-fire-tv" class="secondary" type="button">Pair Fire TV</button>
               <button id="keep-awake" class="secondary" type="button">Keep Awake</button>
+              <button id="theater-mode" class="secondary" type="button">Theater</button>
+              <button id="miniplayer-mode" class="secondary" type="button">Miniplayer</button>
             </div>
             <p id="buffer-status" class="buffer-status">Buffer target: 0 seconds ready of 5 minutes.</p>
             <p class="detail">Smooth playback loads the selected movie ahead inside this page and may use more data.</p>
             <p id="status" class="status" role="status" aria-live="polite">Checking session...</p>
           </div>
+
+          <aside id="up-next-panel" class="up-next-panel" aria-label="Up next" hidden>
+            <h2>Up Next</h2>
+            <p id="up-next-title" class="detail"></p>
+            <button id="up-next-play" type="button">Play next</button>
+          </aside>
 
           <section class="browse-section" aria-labelledby="browse-title">
             <div class="browse-header">
