@@ -2,6 +2,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const { Readable } = require("node:stream");
 
 const { createReadStream, promises: fsp } = fs;
 const { R_OK } = fs.constants;
@@ -13,6 +14,7 @@ const {
 } = require("./lib/media");
 const { createLocalProvider } = require("./lib/providers/local");
 const { createOneDriveProvider } = require("./lib/providers/onedrive");
+const { createJellyfinProvider } = require("./lib/providers/jellyfin");
 const { createKeyValueStore } = require("./lib/store");
 const { createViewerStateManager, normalizeProfileId } = require("./lib/viewer-state");
 
@@ -562,6 +564,21 @@ function createRateLimiter(store, authConfig, now = Date.now, trustProxy = false
   };
 }
 
+async function proxyFetchResponse(request, response, upstream, extraHeaders = {}) {
+  const headers = {};
+  for (const name of ["content-type", "content-length", "content-range", "accept-ranges", "last-modified", "etag"]) {
+    const value = upstream.headers.get(name);
+    if (value) headers[name] = value;
+  }
+  Object.assign(headers, noStoreHeaders(extraHeaders));
+  response.writeHead(upstream.status, headers);
+  if (request.method === "HEAD" || !upstream.body) {
+    response.end();
+    return;
+  }
+  Readable.fromWeb(upstream.body).on("error", () => response.destroy()).pipe(response);
+}
+
 function createRequestRateLimiter(store, {
   prefix,
   windowMs,
@@ -609,7 +626,10 @@ function createCastPlaybackManager(
       }
 
       const mediaName = movie.fileName || movie.id;
-      if (!isStreamableExtension(mediaName)) {
+      // Jellyfin has already classified the item as playable and may transcode
+      // containers such as AVI. Local/OneDrive providers still use the app's
+      // conservative browser extension allow-list.
+      if (provider.kind !== "jellyfin" && !isStreamableExtension(mediaName)) {
         throw new HttpError(415, "Unsupported movie format.");
       }
 
@@ -898,6 +918,13 @@ function createProvider(options = {}) {
       env,
       fetchImpl: options.fetchImpl || fetch,
       store: options.store,
+    });
+  }
+
+  if (providerName === "jellyfin") {
+    return createJellyfinProvider({
+      env,
+      fetchImpl: options.fetchImpl || fetch,
     });
   }
 
@@ -1260,6 +1287,12 @@ function createRequestHandler(options = {}) {
 
         const castPlayback = await context.castPlaybackManager.get(url.searchParams.get("ticket"));
 
+        if (context.provider.kind === "jellyfin") {
+          const upstream = await context.provider.proxyStream(castPlayback.movieId, request);
+          await proxyFetchResponse(request, response, upstream, castMediaHeaders());
+          return;
+        }
+
         if (context.provider.kind !== "local") {
           const playback = await context.resolvePlayback(castPlayback.movieId);
           if (!playback?.url || !playback.url.startsWith("https://")) {
@@ -1309,6 +1342,30 @@ function createRequestHandler(options = {}) {
         }
 
         streamFile(request, response, filePath, stats.size, corsHeaders);
+        return;
+      }
+
+      if ((request.method === "GET" || request.method === "HEAD") && url.pathname.startsWith("/api/jellyfin/image/")) {
+        await context.sessionManager.get(request, true);
+        if (context.provider.kind !== "jellyfin") {
+          throw new HttpError(404, "Jellyfin artwork is not enabled.");
+        }
+        const itemId = decodeURIComponent(url.pathname.slice("/api/jellyfin/image/".length));
+        if (!itemId) throw new HttpError(400, "A Jellyfin item id is required.");
+        const upstream = await context.provider.proxyImage(itemId, request);
+        await proxyFetchResponse(request, response, upstream);
+        return;
+      }
+
+      if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/api/jellyfin/stream") {
+        await context.sessionManager.get(request, true);
+        if (context.provider.kind !== "jellyfin") {
+          throw new HttpError(404, "Jellyfin streaming is not enabled.");
+        }
+        const itemId = url.searchParams.get("movieId") || "";
+        if (!itemId) throw new HttpError(400, "A Jellyfin item id is required.");
+        const upstream = await context.provider.proxyStream(itemId, request);
+        await proxyFetchResponse(request, response, upstream);
         return;
       }
 

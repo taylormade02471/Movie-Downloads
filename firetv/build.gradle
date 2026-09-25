@@ -10,10 +10,11 @@ android {
         applicationId "com.movieroom.firetv"
         minSdk 23
         targetSdk 35
-        versionCode 4
-        versionName "0.4.0"
+        versionCode 5
+        versionName "0.5.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField "String", "MOVIE_ROOM_BASE_URL", "\"https://movie-downloads-six.vercel.app\""
+        def movieRoomBaseUrl = project.findProperty("movieRoomBaseUrl") ?: "https://movie-downloads-six.vercel.app"
+        buildConfigField "String", "MOVIE_ROOM_BASE_URL", "\"${movieRoomBaseUrl}\""
     }
 
     buildFeatures {

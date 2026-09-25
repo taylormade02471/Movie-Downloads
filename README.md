@@ -67,6 +67,35 @@ Set `ONEDRIVE_PUBLIC_CLIENT=true` only when your Microsoft app registration is c
 The app never exposes the shared password, session secret, or OneDrive credentials to the browser.
 The first-run permissions button does not open a broad Bluetooth chooser. Google Cast and AirPlay discover TVs over the local Wi-Fi network. Cast playback tickets are stored in the configured durable KV store and contain no movie name or login cookie.
 
+### Jellyfin backend with the Movie Room front end
+
+Jellyfin can stay on the Windows computer as the library, metadata, artwork, and media backend while the Movie Room web app remains the only front end shown to viewers. The Fire TV APK is also the Movie Room front end; do not install the Jellyfin app on the TV for this setup.
+
+1. In Jellyfin, open Dashboard → API Keys and create a server API key for Movie Room. Keep that key private.
+2. Add these values to a local `.env` file (or export them only in the Movie Room server's process):
+
+   ```text
+   MOVIE_PROVIDER=jellyfin
+   JELLYFIN_URL=http://127.0.0.1:8096
+   JELLYFIN_API_KEY=your-local-jellyfin-api-key
+   JELLYFIN_LIBRARY_ID=
+   MOVIE_PASSWORD=yourpassword
+   SESSION_SECRET=replace-with-a-long-random-secret
+   APP_ORIGIN=http://192.168.1.169:3000
+   ```
+
+   `JELLYFIN_API_KEY` is server-only. Do not commit it, put it in the APK, or paste it into chat.
+3. Start Movie Room with `npm start` and open it at `http://localhost:3000` on the Windows computer. The app's `/api/movies`, artwork, and playback routes will read through Jellyfin; the browser never receives the Jellyfin key.
+4. To use the same Movie Room front end on a Fire TV over the home network, build the APK with the computer's LAN URL:
+
+   ```powershell
+   .\gradlew.bat :firetv:assembleDebug -PmovieRoomBaseUrl=http://192.168.1.169:3000
+   ```
+
+   Replace the address with the computer's current private LAN address. The Windows computer and Fire TV must remain on the same network, and Movie Room must be running while the TV is watching. The default APK URL remains the hosted OneDrive deployment.
+
+Vercel cannot reach `127.0.0.1` on the Windows computer. Keep the hosted deployment on OneDrive, or use a deliberately secured VPN/reverse proxy if Jellyfin must be reached remotely; never expose Jellyfin's admin/API port directly to the public Internet.
+
 ## Private Fire TV app
 
 The private Fire TV app lives in `firetv/`. It is for sideloading onto the owner's Fire TV devices and is not an Amazon Appstore submission. Its launcher banner is the black-and-gold `TaylorMade Movies` cover artwork.
@@ -102,7 +131,7 @@ This sideloads the private app; it does not replace or "flash" Fire OS firmware.
 
 ## Getting started
 
-Use Node.js 22.9 or newer. `npm start` loads a local `.env` file when one exists and otherwise uses the current process environment.
+Use Node.js 22.9 or newer. `npm start` loads `.env` and then the ignored `.env.local` override when either exists, and otherwise uses the current process environment.
 
 1. Put movie files such as `.mp4`, `.m4v`, `.mov`, `.webm`, `.ogg`, or `.mkv` into the project’s `movies/` folder for local development.
 2. Configure the required environment variables.
