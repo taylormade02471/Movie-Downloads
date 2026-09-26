@@ -240,7 +240,8 @@ test("configures Fire TV playback for buffered seeking", () => {
   assert.match(source, /setShowFastForwardButton\(true\)/);
   assert.match(source, /KEYCODE_MEDIA_FAST_FORWARD/);
   assert.match(source, /KEYCODE_MEDIA_REWIND/);
-  assert.match(source, /setBufferDurationsMs\(30_000, 300_000, 2_500, 5_000\)/);
+  assert.match(source, /setBufferDurationsMs\(60_000, 300_000, 5_000, 10_000\)/);
+  assert.match(source, /setPrioritizeTimeOverSizeThresholds\(true\)/);
 });
 
 test("ships a Safari-compatible browser script for older iPhones", () => {
