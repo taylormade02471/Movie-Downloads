@@ -104,25 +104,47 @@ test("cleans movie file names and derives poster URLs", () => {
 
 test("organizes the library into family categories and hides technical folders", () => {
   assert.equal(classifyMovie({ title: "Toy Story 5" }), "kids");
+  assert.equal(classifyMovie({ title: "Northern Exposure" }), "mom");
+  assert.equal(classifyMovie({ title: "Home Alone" }), "kids");
   assert.equal(classifyMovie({ title: "In The Grey" }), "adults");
   assert.deepEqual(
     filterMovieFolders([
       { path: "Home Alone Collection", name: "Home Alone Collection", movieCount: 5 },
       { path: "Home Alone Collection/Home Alone Complete Collection", name: "Home Alone Complete Collection", movieCount: 5 },
       { path: "Home Alone Collection/Home Alone Complete Collection/Subs", name: "Subs", movieCount: 0 },
+      { path: "TV Shows", name: "TV Shows", movieCount: 110 },
+      { path: "TV Shows/Northern Exposure", name: "Northern Exposure", movieCount: 110 },
+      { path: "TV Shows/Northern Exposure/Season 1", name: "Season 1", movieCount: 8 },
+      { path: "TV Shows/Northern Exposure/Season 2", name: "Season 2", movieCount: 23 },
       { path: "Movie Room Application Mac Copy/firetv/src", name: "src", movieCount: 0 },
-    ]).map((folder) => folder.name),
-    ["Home Alone Complete Collection"],
+    ]).map((folder) => folder.path),
+    [
+      "Home Alone Collection/Home Alone Complete Collection",
+      "TV Shows/Northern Exposure",
+    ],
   );
 });
 
 test("ships discovery shelves and a profile-aware viewer-state client", async () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+  const appSource = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
   assert.match(html, /id="hero-movie"/);
+  assert.match(html, /hero-movie \{[^}]*min-height: clamp\(220px, 30vw, 360px\)/);
+  assert.match(html, /id="recent-title">Recently Downloaded/);
+  assert.ok(html.indexOf('id="hero-movie"') < html.indexOf('id="category-shelf"'));
+  assert.ok(html.indexOf('id="category-shelf"') < html.indexOf('id="continue-watching-shelf"'));
+  assert.ok(html.indexOf('id="continue-watching-shelf"') < html.indexOf('id="recently-added-shelf"'));
+  assert.ok(html.indexOf('id="recently-added-shelf"') < html.indexOf('id="movie-grid"'));
   assert.match(html, /id="continue-watching-shelf"/);
   assert.match(html, /id="recently-added-shelf"/);
   assert.match(html, /id="movie-details-dialog"/);
   assert.match(html, /id="mobile-nav"/);
+  assert.match(appSource, /\["all", "All"\]/);
+  assert.match(appSource, /\["mom", "Mom"\]/);
+  assert.match(appSource, /\["family", "Family"\]/);
+  assert.match(appSource, /\["alpha-a-c", "A-C"\]/);
+  assert.match(appSource, /function installHoverPreview/);
+  assert.match(appSource, /preview\.muted = true/);
 
   const calls = [];
   const client = createViewerStateClient({

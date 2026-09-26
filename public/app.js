@@ -1,13 +1,69 @@
-const KIDS_MOVIE_PATTERN = /\b(?:home\s+alone|toy\s+story|paw\s+patrol|spider\s*man|superman|jurassic\s+world|magic\s+faraway\s+tree)\b/i;
+const KIDS_MOVIE_PATTERN = /\b(?:home\s+alone|toy\s+story|paw\s+patrol|magic\s+faraway\s+tree|inside\s+out|minions?|despicable\s+me|shrek|finding\s+nemo|frozen)\b/i;
+const FAMILY_MOVIE_PATTERN = /\b(?:family|spider\s*man|superman|jurassic\s+world|jurassic\s+park|harry\s+potter|star\s+wars|marvel|pixar|disney)\b/i;
+const MOM_MOVIE_PATTERN = /\b(?:mom|moms|northern\s+exposure|romance|romantic|drama|love|fifty\s+shades|bomb\s+girls|hallmark)\b/i;
 const TECHNICAL_FOLDER_PATTERN = /^(?:subs?|images?|drawable(?:[-_ ]?nodpi)?|res|src|main|java|providers?|firetv|api|cast|playback|stream|tv|pairings?|docs?|test|gradle|node_modules?|skills?|agents?|patterns?|search|commands|migrations|performance|advanced features)$/i;
+const LIBRARY_ROOT_FOLDER_PATTERN = /^(?:movies?|movie downloads?|my movie downloads?|tv shows?|shows?|series|library)$/i;
+const SEASON_FOLDER_PATTERN = /^season\s+\d+/i;
+const ALPHA_CATEGORIES = [
+  ["alpha-a-c", "A-C", /^[A-C]/i],
+  ["alpha-d-h", "D-H", /^[D-H]/i],
+  ["alpha-i-n", "I-N", /^[I-N]/i],
+  ["alpha-o-z", "O-Z", /^[O-Z]/i],
+];
 const VIEWER_STATE_API = typeof require === "function"
   ? require("./viewer-state")
   : (typeof window !== "undefined" ? window.MovieRoomViewerState : null);
 
-function classifyMovie(movie) {
+function movieSearchableText(movie) {
   const source = movie || {};
-  const searchable = `${source.title || ""} ${source.fileName || ""} ${source.folder || ""}`;
-  return KIDS_MOVIE_PATTERN.test(searchable) ? "kids" : "adults";
+  const genres = Array.isArray(source.genres) ? source.genres.join(" ") : "";
+  const tags = Array.isArray(source.tags) ? source.tags.join(" ") : "";
+  return `${source.title || ""} ${source.fileName || ""} ${source.folder || ""} ${genres} ${tags}`;
+}
+
+function classifyMovie(movie) {
+  const searchable = movieSearchableText(movie);
+  if (KIDS_MOVIE_PATTERN.test(searchable)) {
+    return "kids";
+  }
+  if (MOM_MOVIE_PATTERN.test(searchable)) {
+    return "mom";
+  }
+  if (FAMILY_MOVIE_PATTERN.test(searchable)) {
+    return "family";
+  }
+  return "adults";
+}
+
+function movieInAudience(movie, category) {
+  if (category === "all") {
+    return true;
+  }
+
+  const searchable = movieSearchableText(movie);
+  if (category === "kids") {
+    return KIDS_MOVIE_PATTERN.test(searchable);
+  }
+  if (category === "mom") {
+    return MOM_MOVIE_PATTERN.test(searchable);
+  }
+  if (category === "family") {
+    return FAMILY_MOVIE_PATTERN.test(searchable) || KIDS_MOVIE_PATTERN.test(searchable);
+  }
+  if (category === "adults") {
+    return !KIDS_MOVIE_PATTERN.test(searchable)
+      && !FAMILY_MOVIE_PATTERN.test(searchable)
+      && !MOM_MOVIE_PATTERN.test(searchable);
+  }
+
+  return true;
+}
+
+function movieAlphaCategory(movie) {
+  const title = String((movie && (movie.title || movie.fileName)) || "").trim();
+  const first = title.replace(/^(?:the|a|an)\s+/i, "").charAt(0).toUpperCase();
+  const match = ALPHA_CATEGORIES.find(([, , pattern]) => pattern.test(first));
+  return match ? match[0] : "alpha-o-z";
 }
 
 function isMoviePlayable(movie) {
@@ -20,15 +76,44 @@ function isMoviePlayable(movie) {
 function filterMovieFolders(folders) {
   const candidates = (Array.isArray(folders) ? folders : [])
     .filter((folder) => folder && folder.path && !folder.hidden && Number(folder.movieCount) > 0)
+    .map((folder) => ({
+      ...folder,
+      path: String(folder.path).replace(/\\/g, "/"),
+    }))
     .filter((folder) => {
       const parts = String(folder.path).split(/[\\/]/).filter(Boolean);
       return !parts.some((part) => TECHNICAL_FOLDER_PATTERN.test(part.trim()));
     });
 
+  const seriesRoots = new Set();
+  for (const folder of candidates) {
+    const parts = String(folder.path).split("/").filter(Boolean);
+    const lastPart = parts[parts.length - 1] || "";
+    if (!SEASON_FOLDER_PATTERN.test(lastPart)) {
+      continue;
+    }
+
+    for (let index = parts.length - 2; index >= 0; index -= 1) {
+      const parentName = parts[index];
+      if (!LIBRARY_ROOT_FOLDER_PATTERN.test(parentName.trim())) {
+        seriesRoots.add(parts.slice(0, index + 1).join("/"));
+        break;
+      }
+    }
+  }
+
   return candidates
-    .filter((folder) => !candidates.some((other) => (
-      other.path !== folder.path && other.path.startsWith(`${folder.path}/`)
-    )))
+    .filter((folder) => {
+      if (seriesRoots.has(folder.path)) {
+        return true;
+      }
+      if ([...seriesRoots].some((seriesPath) => folder.path.startsWith(`${seriesPath}/`))) {
+        return false;
+      }
+      return !candidates.some((other) => (
+        other.path !== folder.path && other.path.startsWith(`${folder.path}/`)
+      ));
+    })
     .sort((left, right) => left.path.localeCompare(right.path));
 }
 
@@ -133,7 +218,7 @@ function createApp({
   let restoredMovieId = "";
   let progressWriteInFlight = null;
   let activeFolder = "all";
-  let activeCategory = "recent";
+  let activeCategory = "all";
   let searchTerm = "";
   let playerVisible = false;
   let wakeLock = null;
@@ -332,6 +417,9 @@ function createApp({
 
   function setPlayerVisibility(visible, { scroll = false } = {}) {
     playerVisible = Boolean(visible);
+    if (watchStage) {
+      watchStage.hidden = !playerVisible;
+    }
     if (watchPlaceholder) {
       watchPlaceholder.hidden = playerVisible;
     }
@@ -1133,11 +1221,14 @@ function createApp({
   }
 
   function movieMatchesFilter(movie) {
+    const movieFolder = movie.folder || "";
     const folderMatches = activeFolder === "all"
-      || (activeFolder === "" && !movie.folder)
-      || movie.folder === activeFolder
-      || movie.folder.startsWith(`${activeFolder}/`);
-    const categoryMatches = activeCategory === "recent" || classifyMovie(movie) === activeCategory;
+      || (activeFolder === "" && !movieFolder)
+      || movieFolder === activeFolder
+      || movieFolder.startsWith(`${activeFolder}/`);
+    const categoryMatches = activeCategory.startsWith("alpha-")
+      ? movieAlphaCategory(movie) === activeCategory
+      : movieInAudience(movie, activeCategory);
     const searchable = `${movie.title || ""} ${movie.fileName || ""} ${movie.folder || ""}`.toLowerCase();
     return folderMatches && categoryMatches && searchable.includes(searchTerm);
   }
@@ -1225,16 +1316,27 @@ function createApp({
     }
 
     const documentRef = categoryShelf.ownerDocument;
-    const categories = [
-      ["recent", "All"],
+    const categoryGroups = [
+      ["all", "All"],
       ["adults", "Adults"],
       ["kids", "Kids"],
+      ["mom", "Mom"],
+      ["family", "Family"],
+      ["alpha-a-c", "A-C"],
+      ["alpha-d-h", "D-H"],
+      ["alpha-i-n", "I-N"],
+      ["alpha-o-z", "O-Z"],
     ];
-    const buttons = categories.map(([category, label]) => {
+    const buttons = categoryGroups.map(([category, label]) => {
       const button = documentRef.createElement("button");
       button.type = "button";
       button.className = "category-chip";
-      button.textContent = label;
+      const count = allMovies.filter((movie) => (
+        category.startsWith("alpha-")
+          ? movieAlphaCategory(movie) === category
+          : movieInAudience(movie, category)
+      )).length;
+      button.textContent = `${label}${count ? ` ${count}` : ""}`;
       button.setAttribute("aria-pressed", activeCategory === category ? "true" : "false");
       if (activeCategory === category) {
         button.classList.add("active");
@@ -1246,6 +1348,120 @@ function createApp({
       return button;
     });
     categoryShelf.replaceChildren(...buttons);
+  }
+
+  function installHoverPreview(card, poster, movie, ready) {
+    if (!ready || !card || !poster || !hasMethod(card, "addEventListener") || !hasMethod(poster, "append")) {
+      return;
+    }
+
+    const documentRef = poster.ownerDocument || (card.ownerDocument || null);
+    if (!documentRef || !hasMethod(documentRef, "createElement")) {
+      return;
+    }
+
+    let hoverTimer = null;
+    let stopTimer = null;
+    let preview = null;
+    let hoverRun = 0;
+
+    function clearTimer(timer) {
+      if (timer !== null) {
+        clearTimeoutImpl(timer);
+      }
+    }
+
+    function clearPreview() {
+      clearTimer(stopTimer);
+      stopTimer = null;
+      if (!preview) {
+        return;
+      }
+
+      if (hasMethod(preview, "pause")) {
+        preview.pause();
+      }
+      if (hasMethod(preview, "removeAttribute")) {
+        preview.removeAttribute("src");
+      }
+      if (hasMethod(preview, "load")) {
+        preview.load();
+      }
+      if (hasMethod(preview, "remove")) {
+        preview.remove();
+      }
+      preview = null;
+      if (card.classList) {
+        card.classList.remove("previewing", "preview-loading");
+      }
+    }
+
+    async function startPreview(runId) {
+      if (card.classList) {
+        card.classList.add("preview-loading");
+      }
+
+      try {
+        const playback = await requestPlaybackLink(movie.id, "Unable to preview this movie.");
+        if (runId !== hoverRun || !playback || !playback.url) {
+          return;
+        }
+
+        preview = documentRef.createElement("video");
+        preview.className = "poster-preview-video";
+        preview.muted = true;
+        preview.defaultMuted = true;
+        preview.playsInline = true;
+        preview.preload = "metadata";
+        preview.setAttribute("aria-hidden", "true");
+        preview.setAttribute("playsinline", "");
+        preview.setAttribute("webkit-playsinline", "");
+        preview.src = /^https?:\/\//i.test(playback.url)
+          ? playback.url
+          : new URL(playback.url, locationOrigin).toString();
+        if (hasMethod(preview, "addEventListener")) {
+          preview.addEventListener("loadedmetadata", () => {
+            const duration = Number(preview.duration) || 0;
+            if (duration > 12) {
+              preview.currentTime = Math.min(5, duration - 6);
+            }
+          }, { once: true });
+        }
+        poster.append(preview);
+        if (card.classList) {
+          card.classList.remove("preview-loading");
+          card.classList.add("previewing");
+        }
+        if (hasMethod(preview, "play")) {
+          await Promise.resolve(preview.play()).catch(() => {});
+        }
+        stopTimer = setTimeoutImpl(clearPreview, 10000);
+      } catch {
+        if (card.classList) {
+          card.classList.remove("preview-loading");
+        }
+      }
+    }
+
+    function schedulePreview() {
+      hoverRun += 1;
+      const runId = hoverRun;
+      clearTimer(hoverTimer);
+      hoverTimer = setTimeoutImpl(() => {
+        hoverTimer = null;
+        startPreview(runId);
+      }, 950);
+    }
+
+    function cancelPreview() {
+      hoverRun += 1;
+      clearTimer(hoverTimer);
+      hoverTimer = null;
+      clearPreview();
+    }
+
+    card.addEventListener("mouseenter", schedulePreview);
+    card.addEventListener("mouseleave", cancelPreview);
   }
 
   function renderMovieGrid() {
@@ -1293,6 +1509,7 @@ function createApp({
         }, { once: true });
         poster.prepend(image);
       }
+      installHoverPreview(button, poster, movie, ready);
 
       const title = documentRef.createElement("span");
       title.className = "movie-title";
@@ -1407,6 +1624,7 @@ function createApp({
       image.addEventListener("error", () => image.remove(), { once: true });
       poster.prepend(image);
     }
+    installHoverPreview(card, poster, movie, ready);
     const info = documentRef.createElement("span");
     info.className = "movie-info";
     const title = documentRef.createElement("span");
@@ -1451,7 +1669,7 @@ function createApp({
   }
 
   function renderDiscovery() {
-    const playable = allMovies.filter((movie) => (Number(movie.size) || 0) > 0);
+    const playable = allMovies.filter(isMoviePlayable);
     const continueMovies = playable
       .filter((movie) => {
         const record = viewerRecord(movie.id);
@@ -1538,8 +1756,8 @@ function createApp({
   function playNextFromQueue() {
     const currentId = movieSelect.value;
     const queue = Array.isArray(viewerState.queue) ? viewerState.queue : [];
-    const nextId = queue.find((movieId) => movieId !== currentId && allMovies.some((movie) => movie.id === movieId && (Number(movie.size) || 0) > 0));
-    const next = allMovies.find((movie) => movie.id === nextId) || allMovies.find((movie) => movie.id !== currentId && (Number(movie.size) || 0) > 0);
+    const nextId = queue.find((movieId) => movieId !== currentId && allMovies.some((movie) => movie.id === movieId && isMoviePlayable(movie)));
+    const next = allMovies.find((movie) => movie.id === nextId) || allMovies.find((movie) => movie.id !== currentId && isMoviePlayable(movie));
     if (!next) return false;
     movieSelect.value = next.id;
     playSelectedMovie({ scrollToPlayer: true }).catch((error) => updateStatus(error.message));
@@ -1573,6 +1791,21 @@ function createApp({
     }
 
     return response;
+  }
+
+  async function requestPlaybackLink(movieId, fallbackMessage = "Unable to start playback.") {
+    const response = await handleApiResponse(
+      await fetchImpl("/api/playback", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ movieId }),
+      }),
+      fallbackMessage,
+    );
+    return response.json();
   }
 
   async function loadLibrary(selectedMovieId = movieSelect.value) {
@@ -1674,18 +1907,7 @@ function createApp({
     updateStatus("Requesting a secure playback link…");
     let playback;
     try {
-      const response = await handleApiResponse(
-        await fetchImpl("/api/playback", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ movieId }),
-        }),
-        "Unable to start playback.",
-      );
-      playback = await response.json();
+      playback = await requestPlaybackLink(movieId, "Unable to start playback.");
     } catch (error) {
       const superseded = requestVersion !== playbackRequestVersion || movieSelect.value !== movieId;
       if (superseded && (!error || error.code !== "SESSION_EXPIRED")) {
@@ -1910,7 +2132,7 @@ function createApp({
     allMovies = [];
     allFolders = [];
     activeFolder = "all";
-    activeCategory = "recent";
+    activeCategory = "all";
     searchTerm = "";
     if (searchInput) {
       searchInput.value = "";

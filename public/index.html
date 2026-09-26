@@ -539,6 +539,10 @@
         margin-top: 30px;
       }
 
+      .library-tabs-panel {
+        margin: -10px 0 20px;
+      }
+
       .browse-header {
         display: flex;
         align-items: center;
@@ -549,24 +553,29 @@
 
       .category-shelf {
         display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
+        gap: 9px;
+        overflow-x: auto;
+        padding: 4px 2px 10px;
+        scrollbar-color: #5a481f transparent;
       }
 
       .category-chip {
-        border: 1px solid #3b3b3b;
+        flex: 0 0 auto;
+        border: 1px solid #3f341d;
         border-radius: 999px;
         min-width: 74px;
-        padding: 9px 15px;
-        background: #1c1e20;
-        color: #d5d5d5;
+        padding: 10px 16px;
+        background: linear-gradient(180deg, #212326, #151617);
+        color: #f1f1f1;
         font-size: 13px;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025);
       }
 
       .category-chip.active {
         border-color: var(--gold);
-        background: var(--gold);
+        background: linear-gradient(135deg, var(--gold), #8a5c0b);
         color: #17120a;
+        box-shadow: 0 10px 24px rgba(240, 196, 91, 0.18);
       }
 
       .library-summary {
@@ -630,7 +639,45 @@
         width: 100%;
         height: 100%;
         background: #050505;
-        object-fit: contain;
+        object-fit: cover;
+        transition: opacity 180ms ease, transform 260ms ease;
+      }
+
+      .poster-preview-video {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        width: 100%;
+        height: 100%;
+        background: #050505;
+        object-fit: cover;
+        opacity: 0;
+        transition: opacity 220ms ease;
+        pointer-events: none;
+      }
+
+      .movie-card.previewing .poster-preview-video {
+        opacity: 1;
+      }
+
+      .movie-card.previewing .poster img {
+        opacity: 0;
+      }
+
+      .movie-card.preview-loading .poster::after {
+        content: "Preview";
+        position: absolute;
+        right: 10px;
+        bottom: 10px;
+        z-index: 3;
+        border-radius: 999px;
+        padding: 4px 8px;
+        background: rgba(0, 0, 0, 0.72);
+        color: var(--gold-soft);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: .08em;
+        text-transform: uppercase;
       }
 
       .poster-fallback {
@@ -708,15 +755,15 @@
         color: #b8b8b8;
       }
 
-      .hero-movie { position: relative; min-height: clamp(300px, 42vw, 540px); overflow: hidden; margin-bottom: 28px; border: 1px solid #40331b; border-radius: 18px; background: #070707; isolation: isolate; }
+      .hero-movie { position: relative; min-height: clamp(220px, 30vw, 360px); overflow: hidden; margin-bottom: 20px; border: 1px solid #40331b; border-radius: 18px; background: #070707; isolation: isolate; }
       .hero-movie::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, rgba(0,0,0,.94), rgba(0,0,0,.58) 42%, rgba(0,0,0,.12) 78%, #090a0b); }
       .hero-movie img { position: absolute; inset: 0 0 0 28%; z-index: -2; width: 72%; height: 100%; object-fit: cover; opacity: .82; mask-image: linear-gradient(90deg, transparent, black 18%, black 82%, transparent); }
-      .hero-copy { display: grid; align-content: end; min-height: inherit; width: min(620px, 78%); padding: clamp(28px, 6vw, 70px); }
+      .hero-copy { display: grid; align-content: end; min-height: inherit; width: min(560px, 78%); padding: clamp(22px, 4vw, 44px); }
       .eyebrow { margin: 0 0 10px; color: var(--gold-soft); font-size: 12px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; }
-      .hero-copy h1, .details-copy h2 { margin: 0; color: #fff; font-size: clamp(32px, 5vw, 66px); letter-spacing: -.05em; line-height: .98; }
+      .hero-copy h1, .details-copy h2 { margin: 0; color: #fff; font-size: clamp(28px, 4.2vw, 52px); letter-spacing: -.05em; line-height: .98; }
       .hero-meta, .hero-description { max-width: 560px; color: #d1d1d1; }
       .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
-      .discovery-shelves { display: grid; gap: 26px; margin-top: 34px; }
+      .discovery-shelves { display: grid; gap: 26px; margin-top: 4px; }
       .shelf-section { display: grid; gap: 12px; }
       .shelf-heading { display: flex; align-items: baseline; gap: 10px; }
       .shelf-heading h2 { margin: 0; color: #fff; font-size: 23px; }
@@ -878,7 +925,7 @@
           min-height: 62px;
         }
 
-        .hero-movie { min-height: 420px; }
+        .hero-movie { min-height: 300px; }
         .hero-movie img { inset: 0; width: 100%; height: 58%; mask-image: linear-gradient(180deg, black, transparent); }
         .hero-movie::after { background: linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.72) 45%, #090a0b); }
         .hero-copy { width: 100%; padding: 24px; }
@@ -992,8 +1039,11 @@
           </div>
         </div>
       </section>
+      <section class="library-tabs-panel" aria-label="Movie tabs">
+        <div id="category-shelf" class="category-shelf" aria-label="Movie categories"></div>
+      </section>
       <div class="library-shell">
-        <section class="watch-stage" aria-label="Now playing">
+        <section class="watch-stage" aria-label="Now playing" hidden>
           <div id="watch-placeholder" class="watch-placeholder" hidden>
             <img src="/movie-room-hero.png" alt="TaylorMade Movies movie theater" />
             <div class="watch-placeholder-copy">
@@ -1041,30 +1091,29 @@
 
         </section>
 
-          <section class="browse-section" aria-labelledby="browse-title">
-            <div class="browse-header">
-              <div>
-                <h2 id="browse-title">Recently Downloaded</h2>
-                <p id="library-summary" class="library-summary"></p>
-              </div>
-              <div id="category-shelf" class="category-shelf" aria-label="Movie categories"></div>
-            </div>
-            <div id="movie-grid" class="movie-grid" aria-live="polite"></div>
-          </section>
-
           <section class="discovery-shelves" aria-label="Streaming shelves">
             <section class="shelf-section" aria-labelledby="continue-title">
               <div class="shelf-heading"><h2 id="continue-title">Continue Watching</h2><span id="continue-summary" class="shelf-summary"></span></div>
               <div id="continue-watching-shelf" class="movie-rail" aria-live="polite"></div>
             </section>
             <section class="shelf-section" aria-labelledby="recent-title">
-              <div class="shelf-heading"><h2 id="recent-title">Recently Added</h2></div>
+              <div class="shelf-heading"><h2 id="recent-title">Recently Downloaded</h2></div>
               <div id="recently-added-shelf" class="movie-rail" aria-live="polite"></div>
             </section>
             <section class="shelf-section" aria-labelledby="picks-title">
               <div class="shelf-heading"><h2 id="picks-title">Taylor-Made Picks</h2></div>
               <div id="picks-shelf" class="movie-rail" aria-live="polite"></div>
             </section>
+          </section>
+
+          <section class="browse-section" aria-labelledby="browse-title">
+            <div class="browse-header">
+              <div>
+                <h2 id="browse-title">All Movies</h2>
+                <p id="library-summary" class="library-summary"></p>
+              </div>
+            </div>
+            <div id="movie-grid" class="movie-grid" aria-live="polite"></div>
           </section>
 
         <aside class="folder-panel" aria-label="Library controls">
