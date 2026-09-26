@@ -1480,7 +1480,7 @@ function createApp({
       return;
     }
 
-    const cards = filteredMovies.map((movie) => {
+    function createMovieCard(movie) {
       const button = documentRef.createElement("button");
       const ready = isMoviePlayable(movie);
       button.type = "button";
@@ -1542,7 +1542,87 @@ function createApp({
       });
 
       return button;
-    });
+    }
+
+    function seriesGroupForMovies(movies) {
+      const groups = new Map();
+      for (const movie of movies) {
+        if (movie.contentType !== "episode" && !movie.seriesName) continue;
+        const seriesPath = movie.seriesPath || String(movie.folder || "").replace(/\/+(?:Season\s*\d+|S\d+)$/i, "");
+        const seriesName = movie.seriesName || seriesPath.split("/").filter(Boolean).pop() || "TV series";
+        if (!seriesPath) continue;
+        const key = seriesPath.toLowerCase();
+        if (!groups.has(key)) {
+          groups.set(key, {
+            title: seriesName,
+            seriesPath,
+            posterUrl: movie.posterUrl || "",
+            episodes: [],
+            seasons: new Set(),
+          });
+        }
+        const group = groups.get(key);
+        if (!group.posterUrl && movie.posterUrl) group.posterUrl = movie.posterUrl;
+        group.episodes.push(movie);
+        group.seasons.add(Number(movie.seasonNumber) || movie.seasonName || "Season");
+      }
+      return [...groups.values()].sort((left, right) => left.title.localeCompare(right.title));
+    }
+
+    function createSeriesCard(series) {
+      const button = documentRef.createElement("button");
+      button.type = "button";
+      button.className = "movie-card series-card";
+      button.dataset.seriesPath = series.seriesPath;
+      const poster = documentRef.createElement("span");
+      poster.className = "poster";
+      const fallback = documentRef.createElement("span");
+      fallback.className = "poster-fallback";
+      const initials = documentRef.createElement("strong");
+      initials.textContent = movieInitials({ title: series.title });
+      const fallbackTitle = documentRef.createElement("span");
+      fallbackTitle.textContent = series.title;
+      fallback.append(initials, fallbackTitle);
+      poster.append(fallback);
+      if (series.posterUrl) {
+        const image = documentRef.createElement("img");
+        image.alt = `${series.title} series cover`;
+        image.loading = "lazy";
+        image.decoding = "async";
+        image.src = series.posterUrl;
+        image.addEventListener("error", () => image.remove(), { once: true });
+        poster.prepend(image);
+      }
+      const info = documentRef.createElement("span");
+      info.className = "movie-info";
+      const title = documentRef.createElement("span");
+      title.className = "movie-title";
+      title.textContent = series.title;
+      const meta = documentRef.createElement("span");
+      meta.className = "movie-meta";
+      meta.textContent = `${series.seasons.size} season${series.seasons.size === 1 ? "" : "s"} • ${series.episodes.length} episode${series.episodes.length === 1 ? "" : "s"}`;
+      const badge = documentRef.createElement("span");
+      badge.className = "ready-badge";
+      badge.textContent = "Open series";
+      info.append(title, meta, badge);
+      button.append(poster, info);
+      button.addEventListener("click", () => {
+        activeFolder = series.seriesPath;
+        renderLibrary();
+        if (movieGrid && typeof movieGrid.scrollIntoView === "function") {
+          movieGrid.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
+      return button;
+    }
+
+    const seriesGroups = seriesGroupForMovies(filteredMovies);
+    const episodeIds = new Set(seriesGroups.flatMap((series) => series.episodes.map((movie) => movie.id)));
+    const standaloneMovies = filteredMovies.filter((movie) => !episodeIds.has(movie.id));
+    const cards = [
+      ...seriesGroups.map(createSeriesCard),
+      ...standaloneMovies.map(createMovieCard),
+    ];
 
     movieGrid.replaceChildren(...cards);
   }
@@ -1676,8 +1756,9 @@ function createApp({
         return record && record.positionSeconds > 0 && !record.completedAt;
       })
       .sort((left, right) => (viewerRecord(right.id).lastWatchedAt || 0) - (viewerRecord(left.id).lastWatchedAt || 0));
-    const recentMovies = [...playable].slice().reverse();
-    const picks = playable.filter((movie) => classifyMovie(movie) === "kids").concat(playable.filter((movie) => classifyMovie(movie) !== "kids")).slice(0, 12);
+    const browseable = playable.filter((movie) => movie.contentType !== "episode" && !movie.seriesName);
+    const recentMovies = [...browseable].slice().reverse();
+    const picks = browseable.filter((movie) => classifyMovie(movie) === "kids").concat(browseable.filter((movie) => classifyMovie(movie) !== "kids")).slice(0, 12);
     renderShelf(continueWatchingShelf, continueMovies, "Start a movie and your progress will appear here.");
     renderShelf(recentlyAddedShelf, recentMovies, "Newly uploaded movies will appear here.");
     renderShelf(picksShelf, picks, "Your library is ready for its first pick.");

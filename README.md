@@ -100,6 +100,16 @@ Vercel cannot reach `127.0.0.1` on the Windows computer. Keep the hosted deploym
 
 Set `MOVIE_PROVIDER=hybrid` to use Jellyfin for titles, seasons, posters, descriptions, ratings, and organization while resolving playback from the matching OneDrive file. Configure both the `JELLYFIN_*` and `ONEDRIVE_*` values shown above. Movie Room keeps Jellyfin item IDs for viewer history and UI state, matches them to OneDrive by the underlying filename, proxies artwork from Jellyfin, and returns a fresh OneDrive playback URL when a movie is selected.
 
+## Canonical home library
+
+The supported local library root is the user's OneDrive Desktop folder:
+
+`C:\Users\kylet\OneDrive\Desktop\Movie downloads`
+
+Set `MOVIE_LIBRARY_ROOT` to that folder for local or hybrid startup. The scanner recursively reads every supported video below it, including `Movies`, `TV Shows`, `Northern Exposure`, and `Jackass`, while ignoring non-video application files. Series are returned as grouped entries with season and episode counts; the individual episode files remain in their existing folders and are not copied into the repository.
+
+Installable application artifacts belong in the root's `Applications` folder. The movie folders remain the only media source of truth.
+
 This mode does not copy media into Jellyfin. Jellyfin must be reachable by the Movie Room server for catalog and artwork requests. A Vercel deployment cannot use a Jellyfin URL on `127.0.0.1`; use hybrid mode on the Windows-hosted Movie Room server unless Jellyfin is available through a deliberately secured private network path.
 
 ## Private Fire TV app

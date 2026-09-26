@@ -940,6 +940,11 @@ function createProvider(options = {}) {
 
   const env = options.env || process.env;
   const providerName = (env.MOVIE_PROVIDER || "local").toLowerCase();
+  const localMoviesDir = options.moviesDir
+    || env.MOVIE_LIBRARY_ROOT
+    || env.MOVIE_LOCAL_ROOT
+    || env.MOVIES_DIR
+    || path.join(__dirname, "movies");
 
   if (providerName === "onedrive") {
     return createOneDriveProvider({
@@ -961,11 +966,12 @@ function createProvider(options = {}) {
     return createHybridProvider({
       jellyfinProvider: createJellyfinProvider({ env, fetchImpl }),
       oneDriveProvider: createOneDriveProvider({ env, fetchImpl, store: options.store }),
+      localProvider: createLocalProvider({ moviesDir: localMoviesDir }),
     });
   }
 
   return createLocalProvider({
-    moviesDir: options.moviesDir || path.join(__dirname, "movies"),
+    moviesDir: localMoviesDir,
   });
 }
 
