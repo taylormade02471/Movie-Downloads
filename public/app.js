@@ -10,6 +10,13 @@ function classifyMovie(movie) {
   return KIDS_MOVIE_PATTERN.test(searchable) ? "kids" : "adults";
 }
 
+function isMoviePlayable(movie) {
+  if (movie && movie.playbackAvailable === false) {
+    return false;
+  }
+  return (Number(movie && movie.size) || 0) > 0;
+}
+
 function filterMovieFolders(folders) {
   const candidates = (Array.isArray(folders) ? folders : [])
     .filter((folder) => folder && folder.path && !folder.hidden && Number(folder.movieCount) > 0)
@@ -919,11 +926,11 @@ function createApp({
   }
 
   function movieLabel(movie) {
-    const size = Number(movie.size) || 0;
-    if (size <= 0) {
+    if (!isMoviePlayable(movie)) {
       return `${movie.title} (still uploading)`;
     }
 
+    const size = Number(movie.size) || 0;
     const sizeInGb = (size / (1024 ** 3)).toFixed(2);
     return `${movie.title} (${sizeInGb} GB)`;
   }
@@ -943,6 +950,10 @@ function createApp({
     }
 
     return `${numericSize} bytes`;
+  }
+
+  function movieAvailabilityLabel(movie) {
+    return isMoviePlayable(movie) ? movieSizeLabel(movie.size) : "still uploading";
   }
 
   function movieInitials(movie) {
@@ -1001,7 +1012,7 @@ function createApp({
       nowPlayingTitle.textContent = movie.title || movie.fileName || "Untitled movie";
     }
     if (nowPlayingDetail) {
-      const details = [movieFolderLabel(movie), movieSizeLabel(movie.size)];
+      const details = [movieFolderLabel(movie), movieAvailabilityLabel(movie)];
       if (playback && playback.contentType) {
         details.push(playback.contentType.replace(/^video\//, "").toUpperCase());
       }
@@ -1255,7 +1266,7 @@ function createApp({
 
     const cards = filteredMovies.map((movie) => {
       const button = documentRef.createElement("button");
-      const ready = (Number(movie.size) || 0) > 0;
+      const ready = isMoviePlayable(movie);
       button.type = "button";
       button.className = ready ? "movie-card" : "movie-card unavailable";
       button.disabled = !ready;
@@ -1289,7 +1300,7 @@ function createApp({
 
       const meta = documentRef.createElement("span");
       meta.className = "movie-meta";
-      meta.textContent = [movieFolderLabel(movie), movieSizeLabel(movie.size)].join(" • ");
+      meta.textContent = [movieFolderLabel(movie), movieAvailabilityLabel(movie)].join(" • ");
 
       const badge = documentRef.createElement("span");
       badge.className = ready ? "ready-badge" : "upload-badge";
@@ -1373,7 +1384,7 @@ function createApp({
   function createShelfCard(movie, shelf, shelfType = "recent") {
     const documentRef = shelf.ownerDocument;
     const card = documentRef.createElement("button");
-    const ready = (Number(movie.size) || 0) > 0;
+    const ready = isMoviePlayable(movie);
     card.type = "button";
     card.className = ready ? "movie-card" : "movie-card unavailable";
     card.disabled = !ready;
@@ -1598,13 +1609,13 @@ function createApp({
       return [];
     }
 
-    const playableMovies = movies.filter((movie) => (Number(movie.size) || 0) > 0);
+    const playableMovies = movies.filter(isMoviePlayable);
 
     for (const movie of movies) {
       const option = createOption();
       option.value = movie.id;
       option.textContent = movieLabel(movie);
-      option.disabled = (Number(movie.size) || 0) <= 0;
+      option.disabled = !isMoviePlayable(movie);
       movieSelect.appendChild(option);
     }
 

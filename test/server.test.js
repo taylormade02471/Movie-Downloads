@@ -1622,6 +1622,7 @@ test("selects an uploaded movie and labels unfinished OneDrive entries", async (
         status: 200,
         json: async () => ([
           { id: "uploading", title: "Movie Uploading", folder: "", size: 0 },
+          { id: "metadata-only", title: "Metadata Only", folder: "", size: 1639238719, playbackAvailable: false },
           { id: "ready", title: "Movie Ready", folder: "", size: 1639238719 },
         ]),
       };
@@ -1637,7 +1638,9 @@ test("selects an uploaded movie and labels unfinished OneDrive entries", async (
   assert.equal(movieSelect.disabled, false);
   assert.equal(options[0].disabled, true);
   assert.match(options[0].textContent, /still uploading/i);
-  assert.equal(options[1].disabled, false);
+  assert.equal(options[1].disabled, true);
+  assert.match(options[1].textContent, /still uploading/i);
+  assert.equal(options[2].disabled, false);
 });
 
 test("shows Chrome cast guidance when browser cast APIs are unavailable", async () => {
