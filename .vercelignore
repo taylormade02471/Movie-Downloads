@@ -1,12 +1,10 @@
-.agents/
+.env
+.env.*
 .gradle/
 **/build/
 local.properties
 node_modules/
-movies/*
-!movies/.gitkeep
-.env
-.env.*
-!.env.example
+movies/
+.agents/
 skills-lock.json
 0

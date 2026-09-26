@@ -3,106 +3,1195 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Movie Room</title>
+    <title>TaylorMade Movies | Movie Room</title>
     <style>
       :root {
         color-scheme: dark;
-        font-family: Arial, sans-serif;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #090a0b;
+        color: #f5f5f5;
+        --gold: #f0c45b;
+        --gold-soft: #f8d77d;
+        --ink: #090a0b;
+        --panel: #141516;
+        --panel-raised: #1b1d1e;
+        --line: #303234;
+      }
+
+      * {
+        box-sizing: border-box;
       }
 
       body {
         margin: 0;
-        background: #111827;
-        color: #f9fafb;
+        background:
+          radial-gradient(circle at 78% 0%, rgba(240, 196, 91, 0.08), transparent 30rem),
+          #090a0b;
+        color: #f5f5f5;
       }
 
-      main {
-        max-width: 1100px;
-        margin: 0 auto;
-        padding: 24px;
-      }
-
-      .panel {
-        background: #1f2937;
-        border-radius: 16px;
-        padding: 20px;
-        box-shadow: 0 20px 45px rgba(0, 0, 0, 0.25);
-      }
-
-      h1 {
-        margin-top: 0;
-      }
-
-      select,
-      button {
-        border: 0;
-        border-radius: 10px;
-        padding: 12px 14px;
+      button,
+      input,
+      select {
         font: inherit;
       }
 
-      select {
-        width: min(100%, 500px);
-      }
-
       button {
-        background: #2563eb;
-        color: white;
         cursor: pointer;
       }
 
-      .controls {
+      [hidden] {
+        display: none !important;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 5;
         display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 15px 32px;
+        background: rgba(9, 10, 11, 0.97);
+        border-bottom: 1px solid #252729;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.26);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        min-width: max-content;
+        font-size: 20px;
+        font-weight: 700;
+      }
+
+      .brand-mark {
+        display: none;
+      }
+
+      .brand-copy {
+        display: grid;
+        gap: 1px;
+      }
+
+      .brand-primary {
+        color: var(--gold-soft);
+        letter-spacing: -0.035em;
+        font-size: 21px;
+        line-height: 1;
+      }
+
+      .brand-secondary {
+        color: #bdbdbd;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.23em;
+        text-transform: uppercase;
+      }
+
+      .topbar-actions,
+      .search-wrap {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .profile-switcher {
+        position: relative;
+      }
+
+      .profile-toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 11px 7px 7px;
+        background: #252525;
+        color: #f5f5f5;
+      }
+
+      .profile-avatar {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: #ff0033;
+        color: #fff;
+        font-weight: 800;
+      }
+
+      .profile-menu {
+        position: absolute;
+        top: calc(100% + 10px);
+        right: 0;
+        z-index: 8;
+        display: grid;
+        gap: 6px;
+        width: 190px;
+        border: 1px solid #383838;
+        border-radius: 12px;
+        padding: 8px;
+        background: #181818;
+        box-shadow: 0 16px 42px rgba(0, 0, 0, 0.48);
+      }
+
+      .profile-menu button {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        background: transparent;
+        color: #f5f5f5;
+        text-align: left;
+      }
+
+      .profile-menu button:hover,
+      .profile-menu button:focus-visible,
+      .profile-menu button.active {
+        background: #2d2d2d;
+        outline: none;
+      }
+
+      .search-wrap {
+        flex: 1;
+        max-width: 560px;
+      }
+
+      .search-wrap input {
+        width: 100%;
+        min-width: 0;
+        border: 1px solid #353739;
+        border-radius: 999px;
+        padding: 11px 16px;
+        background: #151617;
+        color: #fff;
+      }
+
+      .search-wrap input:focus {
+        border-color: var(--gold);
+        outline: 2px solid rgba(240, 196, 91, 0.22);
+        outline-offset: 1px;
+      }
+
+      .page {
+        width: min(1500px, 100%);
+        margin: 0 auto;
+        padding: 24px 32px 56px;
+      }
+
+      .auth-panel {
+        width: min(560px, calc(100% - 32px));
+        margin: 12vh auto 0;
+        padding: 28px;
+        border: 1px solid #2f2f2f;
+        border-radius: 8px;
+        background: #181818;
+      }
+
+      .auth-panel h1,
+      .auth-panel h2 {
+        margin: 0 0 10px;
+      }
+
+      .auth-panel p,
+      .detail,
+      .status {
+        color: #b8b8b8;
+      }
+
+      form {
+        display: grid;
         gap: 12px;
-        flex-wrap: wrap;
-        margin-bottom: 18px;
+        margin-top: 18px;
+      }
+
+      label {
+        font-weight: 700;
+      }
+
+      input,
+      select {
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 12px 14px;
+        background: #111;
+        color: #fff;
+      }
+
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 11px 14px;
+        background: var(--gold);
+        color: #171208;
+        font-weight: 700;
+        transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+      }
+
+      button:hover:not(:disabled) {
+        background: var(--gold-soft);
+        transform: translateY(-1px);
+      }
+
+      button.secondary {
+        background: #2a2a2a;
+        color: #f5f5f5;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.62;
+      }
+
+      .library-shell {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 34px;
+        align-items: start;
+      }
+
+      .watch-stage {
+        min-width: 0;
+      }
+
+      .watch-placeholder {
+        position: relative;
+        display: grid;
+        min-height: clamp(300px, 43vw, 570px);
+        overflow: hidden;
+        border: 1px solid #49391c;
+        border-radius: 14px;
+        background: #050505;
+        box-shadow: 0 22px 56px rgba(0, 0, 0, 0.34);
+      }
+
+      .watch-placeholder img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        min-height: inherit;
+        object-fit: cover;
+        opacity: 0.88;
+      }
+
+      .watch-placeholder-copy {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        align-content: center;
+        gap: 9px;
+        padding: 24px;
+        background: linear-gradient(90deg, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.72));
+        text-align: center;
+      }
+
+      .watch-placeholder-copy strong {
+        color: var(--gold-soft);
+        font-size: clamp(26px, 4vw, 44px);
+        font-weight: 800;
+        letter-spacing: -0.03em;
+      }
+
+      .watch-placeholder-copy::after {
+        content: "";
+        width: 44px;
+        height: 3px;
+        margin-top: 8px;
+        border-radius: 999px;
+        background: var(--gold);
+      }
+
+      .watch-placeholder-copy span {
+        color: #e0e0e0;
+        font-size: 14px;
+      }
+
+      .player-frame {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid #3b301d;
+        border-radius: 14px;
+        background: #000;
+        box-shadow: 0 22px 56px rgba(0, 0, 0, 0.38);
+      }
+
+      .player-frame:fullscreen,
+      .player-frame:-webkit-full-screen {
+        display: grid;
+        place-items: center;
+        width: 100vw;
+        height: 100vh;
+        border-radius: 0;
+      }
+
+      .player-frame:fullscreen video,
+      .player-frame:-webkit-full-screen video {
+        width: 100vw;
+        height: 100vh;
+        max-height: none;
+        object-fit: contain;
+      }
+
+      .player-frame:fullscreen .fullscreen-overlay,
+      .player-frame:-webkit-full-screen .fullscreen-overlay {
+        display: none;
+      }
+
+      .fullscreen-overlay {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        z-index: 3;
+        border: 1px solid rgba(255, 255, 255, 0.5);
+        background: rgba(0, 0, 0, 0.78);
+        color: #fff;
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+      }
+
+      .fullscreen-overlay:hover,
+      .fullscreen-overlay:focus-visible {
+        background: #ff0033;
+        outline: 2px solid #fff;
+        outline-offset: 2px;
       }
 
       video {
+        display: block;
         width: 100%;
-        max-height: 70vh;
-        background: black;
-        border-radius: 14px;
+        aspect-ratio: 16 / 9;
+        max-height: 72vh;
+        background: #000;
       }
 
-      .status {
-        margin-top: 12px;
-        min-height: 1.5em;
-        color: #bfdbfe;
+      .watch-meta {
+        display: grid;
+        gap: 10px;
+        padding: 16px 2px 24px;
       }
 
-      .hint {
-        color: #d1d5db;
+      .watch-meta h1 {
+        margin: 0;
+        color: #fff;
+        font-size: clamp(25px, 3vw, 38px);
+        font-weight: 800;
+        line-height: 1.1;
+      }
+
+      .now-playing-detail {
+        min-height: 1.35em;
+        margin: -2px 0 0;
+        color: #b8b8b8;
+      }
+
+      .player-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .buffer-status {
+        --buffer-progress: 0%;
+        position: relative;
+        overflow: hidden;
+        min-height: 1.4em;
+        width: min(520px, 100%);
+        border-radius: 999px;
+        padding: 8px 12px;
+        background: #1d1d1d;
+        color: #dcdcdc;
+        font-size: 13px;
+      }
+
+      .buffer-status::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        width: var(--buffer-progress);
+        background: rgba(39, 174, 96, 0.34);
+      }
+
+      .buffer-status span,
+      .buffer-status {
+        isolation: isolate;
+      }
+
+      .tv-guide {
+        display: grid;
+        gap: 8px;
+        max-width: 760px;
+        border: 1px solid #2c2c2c;
+        border-radius: 12px;
+        padding: 12px;
+        background: #121212;
+      }
+
+      .tv-guide h2 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .tv-guide ol {
+        margin: 0;
+        padding-left: 22px;
+        color: #d7d7d7;
+      }
+
+      .tv-guide li + li {
+        margin-top: 4px;
+      }
+
+      .tv-guide .status {
+        margin: 0;
+      }
+
+      .controls {
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) auto auto;
+        gap: 10px;
+        align-items: end;
+      }
+
+      .controls label {
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      .folder-panel {
+        display: grid;
+        gap: 14px;
+        border-top: 1px solid #2e3032;
+        padding-top: 28px;
+      }
+
+      .folder-panel h2,
+      .browse-section h2 {
+        margin: 0;
+        color: #fff;
+        font-size: 26px;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+      }
+
+      .folder-shelf {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(150px, 1fr));
+        gap: 12px;
+      }
+
+      .folder-chip {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        min-height: 70px;
+        max-width: 100%;
+        border: 1px solid #35383a;
+        border-radius: 10px;
+        padding: 13px 14px;
+        background: linear-gradient(145deg, #1d1f20, #131516);
+        color: #f5f5f5;
+        font-size: 14px;
+        font-weight: 800;
+        white-space: normal;
+        text-align: left;
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+      }
+
+      .folder-icon {
+        width: 24px;
+        height: 20px;
+        color: var(--gold);
+        fill: currentColor;
+        flex: 0 0 auto;
+      }
+
+      .folder-label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .folder-count {
+        color: #bcbcbc;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .folder-chip.active {
+        border-color: var(--gold);
+        background: var(--gold);
+        color: #171208;
+      }
+
+      .folder-chip.active .folder-icon,
+      .folder-chip.active .folder-count {
+        color: #171208;
+      }
+
+      .browse-section {
+        display: grid;
+        gap: 14px;
+        margin-top: 30px;
+      }
+
+      .library-tabs-panel {
+        margin: -10px 0 20px;
+      }
+
+      .browse-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+
+      .category-shelf {
+        display: flex;
+        gap: 9px;
+        overflow-x: auto;
+        padding: 4px 2px 10px;
+        scrollbar-color: #5a481f transparent;
+      }
+
+      .category-chip {
+        flex: 0 0 auto;
+        border: 1px solid #3f341d;
+        border-radius: 999px;
+        min-width: 74px;
+        padding: 10px 16px;
+        background: linear-gradient(180deg, #212326, #151617);
+        color: #f1f1f1;
+        font-size: 13px;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025);
+      }
+
+      .category-chip.active {
+        border-color: var(--gold);
+        background: linear-gradient(135deg, var(--gold), #8a5c0b);
+        color: #17120a;
+        box-shadow: 0 10px 24px rgba(240, 196, 91, 0.18);
+      }
+
+      .library-summary {
+        min-height: 1.4em;
+        color: #cfcfcf;
+      }
+
+      .movie-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 26px 14px;
+      }
+
+      .movie-card {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        gap: 0;
+        min-width: 0;
+        padding: 0;
+        overflow: hidden;
+        border: 1px solid #2d3032;
+        border-radius: 10px;
+        background: #121415;
+        color: #f5f5f5;
+        text-align: left;
+        transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+      }
+
+      .movie-card:hover,
+      .movie-card:focus-visible {
+        border-color: var(--gold);
+        box-shadow: 0 18px 34px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(240, 196, 91, 0.22);
+        transform: translateY(-3px);
+        outline: none;
+        outline-offset: 3px;
+      }
+
+      .movie-card.unavailable {
+        background: #151515;
+      }
+
+      .poster {
+        position: relative;
+        display: grid;
+        place-items: center;
+        aspect-ratio: 16 / 9;
+        width: 100%;
+        overflow: hidden;
+        border-radius: 9px 9px 0 0;
+        background:
+          linear-gradient(135deg, rgba(255, 0, 51, 0.78), rgba(255, 184, 77, 0.72)),
+          #2b1616;
+        color: #fff;
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: 0;
+      }
+
+      .poster img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: #050505;
+        object-fit: cover;
+        transition: opacity 180ms ease, transform 260ms ease;
+      }
+
+      .poster-preview-video {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        width: 100%;
+        height: 100%;
+        background: #050505;
+        object-fit: cover;
+        opacity: 0;
+        transition: opacity 220ms ease;
+        pointer-events: none;
+      }
+
+      .movie-card.previewing .poster-preview-video {
+        opacity: 1;
+      }
+
+      .movie-card.previewing .poster img {
+        opacity: 0;
+      }
+
+      .movie-card.preview-loading .poster::after {
+        content: "Preview";
+        position: absolute;
+        right: 10px;
+        bottom: 10px;
+        z-index: 3;
+        border-radius: 999px;
+        padding: 4px 8px;
+        background: rgba(0, 0, 0, 0.72);
+        color: var(--gold-soft);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }
+
+      .poster-fallback {
+        display: grid;
+        gap: 8px;
+        place-items: center;
+        padding: 18px;
+        text-align: center;
+      }
+
+      .poster-fallback strong {
+        font-size: clamp(18px, 4vw, 32px);
+        letter-spacing: 0.04em;
+      }
+
+      .poster-fallback span {
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.2;
+      }
+
+      .movie-info {
+        display: grid;
+        gap: 7px;
+        min-height: 112px;
+        padding: 13px 14px 14px;
+      }
+
+      .movie-title,
+      .movie-meta,
+      .ready-badge,
+      .upload-badge {
+        margin: 0;
+      }
+
+      .movie-title {
+        display: -webkit-box;
+        overflow: hidden;
+        color: #fff;
+        font-size: 15px;
+        font-weight: 800;
+        line-height: 1.28;
+        overflow-wrap: anywhere;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
+      .movie-meta {
+        color: #c6c6c6;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .ready-badge,
+      .upload-badge {
+        width: fit-content;
+        border-radius: 999px;
+        padding: 4px 8px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .ready-badge {
+        background: #154f2f;
+        color: #a7f3c6;
+      }
+
+      .upload-badge {
+        background: #473411;
+        color: #ffd88a;
+      }
+
+      .empty-state {
+        margin: 0;
+        color: #b8b8b8;
+      }
+
+      .hero-movie { position: relative; min-height: clamp(220px, 30vw, 360px); overflow: hidden; margin-bottom: 20px; border: 1px solid #40331b; border-radius: 18px; background: #070707; isolation: isolate; }
+      .hero-movie::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, rgba(0,0,0,.94), rgba(0,0,0,.58) 42%, rgba(0,0,0,.12) 78%, #090a0b); }
+      .hero-movie img { position: absolute; inset: 0 0 0 28%; z-index: -2; width: 72%; height: 100%; object-fit: cover; opacity: .82; mask-image: linear-gradient(90deg, transparent, black 18%, black 82%, transparent); }
+      .hero-copy { display: grid; align-content: end; min-height: inherit; width: min(560px, 78%); padding: clamp(22px, 4vw, 44px); }
+      .eyebrow { margin: 0 0 10px; color: var(--gold-soft); font-size: 12px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; }
+      .hero-copy h1, .details-copy h2 { margin: 0; color: #fff; font-size: clamp(28px, 4.2vw, 52px); letter-spacing: -.05em; line-height: .98; }
+      .hero-meta, .hero-description { max-width: 560px; color: #d1d1d1; }
+      .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+      .discovery-shelves { display: grid; gap: 26px; margin-top: 4px; }
+      .shelf-section { display: grid; gap: 12px; }
+      .shelf-heading { display: flex; align-items: baseline; gap: 10px; }
+      .shelf-heading h2 { margin: 0; color: #fff; font-size: 23px; }
+      .shelf-summary { color: #a7a7a7; font-size: 12px; }
+      .movie-rail { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(190px, 224px); gap: 14px; overflow-x: auto; padding: 3px 2px 10px; scroll-snap-type: x mandatory; scrollbar-color: #5a481f transparent; }
+      .movie-rail .movie-card { scroll-snap-align: start; }
+      .progress-track { height: 4px; overflow: hidden; background: #343434; }
+      .progress-track span { display: block; height: 100%; background: var(--gold); }
+      .movie-details-dialog { display: grid; grid-template-columns: minmax(160px, 240px) minmax(0, 1fr); gap: 24px; width: min(780px, calc(100% - 32px)); border: 1px solid #56431e; border-radius: 16px; padding: 26px; color: #fff; background: #141516; box-shadow: 0 24px 90px #000; }
+      .movie-details-dialog::backdrop { background: rgba(0,0,0,.8); backdrop-filter: blur(5px); }
+      .dialog-close { position: absolute; top: 12px; right: 12px; z-index: 2; border-radius: 50%; padding: 4px 11px; font-size: 22px; }
+      .details-art img { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 8px; background: #242424; }
+      .details-copy { align-self: center; }
+      .details-copy h2 { font-size: clamp(28px, 4vw, 48px); }
+      .mobile-nav { display: none; }
+      .library-panel.theater-mode .watch-stage { width: 100%; }
+      .library-panel.theater-mode .folder-panel, .library-panel.theater-mode .guidance-area { display: none; }
+      .library-panel.miniplayer-mode .player-frame { position: fixed; right: 18px; bottom: 18px; z-index: 12; width: min(360px, calc(100vw - 36px)); border-color: var(--gold); box-shadow: 0 18px 50px #000; }
+      .up-next-panel { display: grid; gap: 8px; margin-top: 14px; border: 1px solid #302b20; border-radius: 12px; padding: 14px; background: #111212; }
+      .up-next-panel h2 { margin: 0; font-size: 18px; }
+
+      .guidance-area {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 4px;
+        border-top: 1px solid #2e3032;
+        padding-top: 28px;
+      }
+
+      .permission-panel {
+        position: fixed;
+        right: 18px;
+        bottom: 18px;
+        z-index: 20;
+        display: grid;
+        width: min(520px, calc(100vw - 36px));
+        padding: 0;
+        background: transparent;
+        pointer-events: none;
+      }
+
+      .permission-card {
+        display: grid;
+        gap: 14px;
+        width: min(520px, 100%);
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 22px;
+        background: #181818;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+        pointer-events: auto;
+      }
+
+      .permission-card h2,
+      .permission-card p {
+        margin: 0;
+      }
+
+      .permission-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .permission-list {
+        display: grid;
+        gap: 6px;
+        margin: 0;
+        padding-left: 20px;
+        color: #cfcfcf;
+      }
+
+      @media (max-width: 940px) {
+        .library-shell {
+          grid-template-columns: 1fr;
+        }
+
+        .movie-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .folder-shelf {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 720px) {
+        .topbar {
+          align-items: stretch;
+          flex-direction: column;
+          padding: 12px 14px;
+        }
+
+        .search-wrap {
+          max-width: none;
+          width: 100%;
+        }
+
+        .topbar-actions {
+          flex-wrap: wrap;
+          width: 100%;
+        }
+
+        .topbar-actions > button {
+          flex: 1;
+        }
+
+        .brand {
+          align-self: flex-start;
+        }
+
+        .profile-switcher {
+          flex: 1 1 100%;
+        }
+
+        .profile-toggle {
+          justify-content: center;
+          width: 100%;
+        }
+
+        .profile-menu {
+          left: 0;
+          right: auto;
+          width: 100%;
+        }
+
+        .page {
+          padding: 14px;
+        }
+
+        .controls {
+          grid-template-columns: 1fr;
+        }
+
+        .movie-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
+
+        .folder-shelf,
+        .guidance-area {
+          grid-template-columns: 1fr;
+        }
+
+        .fullscreen-overlay {
+          top: 8px;
+          right: 8px;
+          padding: 8px 10px;
+          font-size: 13px;
+        }
+
+        .movie-info {
+          min-height: 102px;
+          padding: 10px;
+        }
+
+        .folder-chip {
+          min-height: 62px;
+        }
+
+        .hero-movie { min-height: 300px; }
+        .hero-movie img { inset: 0; width: 100%; height: 58%; mask-image: linear-gradient(180deg, black, transparent); }
+        .hero-movie::after { background: linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.72) 45%, #090a0b); }
+        .hero-copy { width: 100%; padding: 24px; }
+        .movie-details-dialog { grid-template-columns: 1fr; max-height: 88vh; overflow: auto; }
+        .details-art { display: none; }
+        .mobile-nav { position: fixed; right: 0; bottom: 0; left: 0; z-index: 10; display: grid; grid-template-columns: repeat(5, 1fr); padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid #333; background: rgba(14,15,16,.96); }
+        .mobile-nav button { display: grid; gap: 2px; place-items: center; padding: 6px 2px; background: transparent; color: #c6c6c6; font-size: 18px; }
+        .mobile-nav span { font-size: 10px; }
+        body { padding-bottom: 74px; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
       }
     </style>
   </head>
   <body>
-    <main>
-      <section class="panel">
-        <h1>Movie Room</h1>
-        <p class="hint">
-          Stream movies directly in the browser from your own shared library.
-          Add video files to the server's <code>movies/</code> folder, then send
-          this page URL to family or friends.
+    <section id="permission-panel" class="permission-panel" hidden>
+      <div class="permission-card" role="dialog" aria-modal="false" aria-labelledby="permission-title">
+        <h2 id="permission-title">Allow playback permissions</h2>
+        <p>
+          This lets Movie Room keep you signed in, keep the screen awake, and prepare Chrome or Safari for TV playback.
         </p>
-
-        <div class="controls">
-          <label for="movie-select">Choose a movie</label>
-          <select id="movie-select"></select>
-          <button id="reload" type="button">Reload library</button>
+        <ul class="permission-list">
+          <li>Cookies stay enabled for the shared sign-in session.</li>
+          <li>Location is optional and is not used to name or pair TVs.</li>
+          <li>Google Cast and AirPlay discover named TVs through the same Wi-Fi network.</li>
+          <li>Movie Room does not open a general Bluetooth device-pairing list.</li>
+        </ul>
+        <div class="permission-actions">
+          <button id="enable-permissions" type="button">Allow permissions</button>
+          <button id="skip-permissions" class="secondary" type="button">Not now</button>
         </div>
+        <p id="permission-status" class="status" role="status" aria-live="polite"></p>
+      </div>
+    </section>
 
-        <video
-          id="player"
-          controls
-          preload="auto"
-          playsinline
-          controlsList="nodownload"
-        ></video>
-        <p id="status" class="status">Loading library…</p>
+    <header class="topbar">
+      <div class="brand" aria-label="TaylorMade Movies Movie Room">
+        <span class="brand-mark">Play</span>
+        <span class="brand-copy">
+          <span class="brand-primary">TaylorMade Movies</span>
+          <span class="brand-secondary">Movie Room</span>
+        </span>
+      </div>
+      <div class="search-wrap">
+        <input
+          id="library-search"
+          type="search"
+          placeholder="Search movies or folders"
+          autocomplete="off"
+          aria-label="Search movies or folders"
+        />
+      </div>
+      <div class="topbar-actions">
+        <div class="profile-switcher">
+          <button
+            id="profile-toggle"
+            class="profile-toggle"
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded="false"
+          >
+            <span id="profile-avatar" class="profile-avatar" aria-hidden="true">H</span>
+            <span id="profile-label">Home</span>
+          </button>
+          <div id="profile-menu" class="profile-menu" role="menu" hidden>
+            <button type="button" role="menuitem" data-viewer-profile="home">Home</button>
+            <button type="button" role="menuitem" data-viewer-profile="family">Family</button>
+            <button type="button" role="menuitem" data-viewer-profile="guest">Guest</button>
+          </div>
+        </div>
+        <button id="reload" class="secondary" type="button">Reload</button>
+        <button id="logout" class="secondary" type="button">Log out</button>
+      </div>
+    </header>
+
+    <section id="auth-panel" class="auth-panel">
+      <h1>Movie Room</h1>
+      <h2>Enter shared password</h2>
+      <p id="password-help">Sign in before the catalog and playback links are revealed.</p>
+      <form id="password-form">
+        <label for="password">Password</label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          autocomplete="current-password"
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck="false"
+          aria-describedby="password-help login-status"
+          required
+        />
+        <button id="login-submit" type="submit">Enter movie room</button>
+      </form>
+      <p id="login-status" class="status" aria-live="assertive" role="alert" tabindex="-1"></p>
+    </section>
+
+    <main id="library-panel" class="page" hidden>
+      <section id="hero-movie" class="hero-movie" aria-labelledby="hero-title">
+        <img id="hero-backdrop" src="/movie-room-hero.png" alt="" />
+        <div class="hero-copy">
+          <p class="eyebrow">Taylor-Made Pick</p>
+          <h1 id="hero-title">Your private movie room</h1>
+          <p id="hero-meta" class="hero-meta"></p>
+          <p id="hero-description" class="hero-description">Choose a title below and settle in for the next scene.</p>
+          <div class="hero-actions">
+            <button id="hero-play" type="button">▶ Play</button>
+            <button id="hero-details" class="secondary" type="button">More info</button>
+          </div>
+        </div>
       </section>
+      <section class="library-tabs-panel" aria-label="Movie tabs">
+        <div id="category-shelf" class="category-shelf" aria-label="Movie categories"></div>
+      </section>
+      <div class="library-shell">
+        <section class="watch-stage" aria-label="Now playing" hidden>
+          <div id="watch-placeholder" class="watch-placeholder" hidden>
+            <img src="/movie-room-hero.png" alt="TaylorMade Movies movie theater" />
+            <div class="watch-placeholder-copy">
+              <strong>Choose a movie to start</strong>
+              <span>Your player will open here when you select a title.</span>
+            </div>
+          </div>
+          <div class="player-frame" hidden>
+            <video
+              id="player"
+              controls
+              preload="auto"
+              playsinline
+              webkit-playsinline
+              x-webkit-airplay="allow"
+              controlsList="nodownload"
+              aria-describedby="status"
+            ></video>
+            <button id="fullscreen-player" class="fullscreen-overlay" type="button" aria-label="Play video full screen">
+              Full screen
+            </button>
+          </div>
+          <div class="watch-meta" hidden>
+            <h1 id="now-playing-title">Choose a movie</h1>
+            <p id="now-playing-detail" class="now-playing-detail">Select a thumbnail below to start streaming.</p>
+            <div class="player-actions" aria-label="TV and phone playback controls">
+              <button id="seek-backward" class="secondary" type="button" data-key="j" aria-label="Rewind 10 seconds">−10 sec</button>
+              <button id="seek-forward" class="secondary" type="button" aria-label="Fast forward 30 seconds">+30 sec</button>
+              <button id="cast-tv" type="button">Cast / AirPlay</button>
+              <button id="pair-fire-tv" class="secondary" type="button">Pair Fire TV</button>
+              <button id="keep-awake" class="secondary" type="button">Keep Awake</button>
+              <button id="theater-mode" class="secondary" type="button">Theater</button>
+              <button id="miniplayer-mode" class="secondary" type="button">Miniplayer</button>
+            </div>
+            <p id="buffer-status" class="buffer-status">Buffer target: 0 seconds ready of 5 minutes.</p>
+            <p class="detail">Smooth playback loads the selected movie ahead inside this page and may use more data.</p>
+            <p id="status" class="status" role="status" aria-live="polite">Checking session...</p>
+          </div>
+
+          <aside id="up-next-panel" class="up-next-panel" aria-label="Up next" hidden>
+            <h2>Up Next</h2>
+            <p id="up-next-title" class="detail"></p>
+            <button id="up-next-play" type="button">Play next</button>
+          </aside>
+
+        </section>
+
+          <section class="discovery-shelves" aria-label="Streaming shelves">
+            <section class="shelf-section" aria-labelledby="continue-title">
+              <div class="shelf-heading"><h2 id="continue-title">Continue Watching</h2><span id="continue-summary" class="shelf-summary"></span></div>
+              <div id="continue-watching-shelf" class="movie-rail" aria-live="polite"></div>
+            </section>
+            <section class="shelf-section" aria-labelledby="recent-title">
+              <div class="shelf-heading"><h2 id="recent-title">Recently Downloaded</h2></div>
+              <div id="recently-added-shelf" class="movie-rail" aria-live="polite"></div>
+            </section>
+            <section class="shelf-section" aria-labelledby="picks-title">
+              <div class="shelf-heading"><h2 id="picks-title">Taylor-Made Picks</h2></div>
+              <div id="picks-shelf" class="movie-rail" aria-live="polite"></div>
+            </section>
+          </section>
+
+          <section class="browse-section" aria-labelledby="browse-title">
+            <div class="browse-header">
+              <div>
+                <h2 id="browse-title">All Movies</h2>
+                <p id="library-summary" class="library-summary"></p>
+              </div>
+            </div>
+            <div id="movie-grid" class="movie-grid" aria-live="polite"></div>
+          </section>
+
+        <aside class="folder-panel" aria-label="Library controls">
+          <div class="controls">
+            <div>
+              <label for="movie-select">Choose a movie</label>
+              <select id="movie-select" disabled></select>
+            </div>
+          </div>
+          <h2>Movie folders</h2>
+          <div id="folder-shelf" class="folder-shelf" aria-label="Folders"></div>
+        </aside>
+
+        <section class="guidance-area" aria-label="TV playback help">
+          <section class="tv-guide" aria-labelledby="tv-guide-title">
+            <h2 id="tv-guide-title">iPhone to TV</h2>
+            <ol id="tv-guide-steps">
+              <li>Connect the iPhone and Apple TV or AirPlay TV to the same Wi-Fi network.</li>
+              <li>Open this page in Safari, sign in, and start the movie.</li>
+              <li>Tap Safari AirPlay above, or tap the AirPlay icon inside the video controls, then choose the TV.</li>
+              <li>Keep Safari open on the phone while the TV plays.</li>
+            </ol>
+            <p id="tv-guide-status" class="status" role="status" aria-live="polite">
+              iPhone works best through Safari AirPlay. Android works best through Chrome Cast when Chrome shows it.
+            </p>
+          </section>
+          <form id="fire-tv-pairing-form" class="tv-guide" hidden>
+            <h2>Pair Fire TV</h2>
+            <p class="detail">Enter the code shown on your Fire TV. The TV gets its own device access, not your password or OneDrive secrets.</p>
+            <label for="fire-tv-code">Fire TV code</label>
+            <input
+              id="fire-tv-code"
+              type="text"
+              inputmode="text"
+              autocomplete="one-time-code"
+              autocapitalize="characters"
+              maxlength="8"
+              aria-describedby="fire-tv-pairing-status"
+            />
+            <button type="submit">Approve Fire TV</button>
+            <p id="fire-tv-pairing-status" class="status" role="status" aria-live="polite"></p>
+          </form>
+        </section>
+      </div>
     </main>
 
+    <dialog id="movie-details-dialog" class="movie-details-dialog" aria-labelledby="details-title">
+      <button id="details-close" class="dialog-close secondary" type="button" aria-label="Close movie details">×</button>
+      <div class="details-art"><img id="details-poster" src="/movie-room-hero.png" alt="" /></div>
+      <div class="details-copy">
+        <p class="eyebrow">Movie Room</p>
+        <h2 id="details-title">Movie details</h2>
+        <p id="details-meta" class="hero-meta"></p>
+        <p id="details-description" class="detail"></p>
+        <div class="hero-actions">
+          <button id="details-play" type="button">▶ Play</button>
+          <button id="details-watch-later" class="secondary" type="button">＋ Watch Later</button>
+          <button id="details-queue" class="secondary" type="button">Add to queue</button>
+        </div>
+        <p id="details-status" class="status" role="status" aria-live="polite"></p>
+      </div>
+    </dialog>
+
+    <nav id="mobile-nav" class="mobile-nav" aria-label="Mobile navigation">
+      <button type="button" data-mobile-action="home">⌂<span>Home</span></button>
+      <button type="button" data-mobile-action="search">⌕<span>Search</span></button>
+      <button type="button" data-mobile-action="saved">＋<span>Saved</span></button>
+      <button type="button" data-mobile-action="history">◷<span>History</span></button>
+      <button type="button" data-mobile-action="library">▦<span>Library</span></button>
+    </nav>
+
+    <script>
+      window.__movieRoomCastApiReady = new Promise((resolve) => {
+        window.__onGCastApiAvailable = (isAvailable) => resolve(Boolean(isAvailable));
+      });
+    </script>
+    <script src="/viewer-state.js" defer></script>
+    <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1" async></script>
     <script src="/app.js" defer></script>
   </body>
-  </html>
+</html>
