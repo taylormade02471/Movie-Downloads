@@ -1,6 +1,7 @@
 package com.movieroom.firetv;
 
 import android.app.Activity;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -94,7 +95,8 @@ public class MainActivity extends Activity {
         leavePlayerFullscreen();
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(42), dp(30), dp(42), dp(30));
+        int pagePadding = isTelevision() ? 42 : 18;
+        root.setPadding(dp(pagePadding), dp(isTelevision() ? 30 : 18), dp(pagePadding), dp(isTelevision() ? 30 : 18));
         root.setGravity(Gravity.CENTER_HORIZONTAL);
         root.setBackgroundColor(0xff090a0b);
         setContentView(root);
@@ -132,6 +134,11 @@ public class MainActivity extends Activity {
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private boolean isTelevision() {
+        return (getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
+                == Configuration.UI_MODE_TYPE_TELEVISION;
     }
 
     private GradientDrawable roundedBackground(int color, int strokeColor, int strokeWidthDp) {
@@ -356,7 +363,7 @@ public class MainActivity extends Activity {
 
         ScrollView scrollView = new ScrollView(this);
         GridLayout grid = new GridLayout(this);
-        grid.setColumnCount(3);
+        grid.setColumnCount(isTelevision() ? 3 : 2);
         grid.setPadding(0, dp(12), 0, dp(24));
         scrollView.addView(grid);
         root.addView(scrollView, new LinearLayout.LayoutParams(
@@ -413,7 +420,7 @@ public class MainActivity extends Activity {
         card.setBackground(roundedBackground(0xff141414, 0xff3b3424, 1));
 
         GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-        params.width = dp(270);
+        params.width = dp(isTelevision() ? 270 : 160);
         params.height = GridLayout.LayoutParams.WRAP_CONTENT;
         params.setMargins(dp(8), dp(8), dp(8), dp(12));
         card.setLayoutParams(params);
@@ -424,7 +431,7 @@ public class MainActivity extends Activity {
         fallback.setTextColor(0xffffd166);
         card.addView(fallback, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(152)));
+                dp(isTelevision() ? 152 : 112)));
 
         TextView title = text(movie.title, 18);
         title.setGravity(Gravity.LEFT);
@@ -480,7 +487,7 @@ public class MainActivity extends Activity {
                     card.removeView(fallback);
                     card.addView(poster, index, new LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT,
-                            dp(152)));
+                            dp(isTelevision() ? 152 : 112)));
                 });
             } catch (Exception ignored) {
                 // Keep the clean initials fallback when no poster is available yet.
