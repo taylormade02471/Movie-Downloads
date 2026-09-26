@@ -68,6 +68,8 @@ test("Jellyfin provider lists playable movies and episodes with app artwork URLs
   assert.equal(library.folders.some((folder) => folder.path === "Northern Exposure/Season 3"), true);
   assert.match(requests[0].url, /\/Items\?/);
   assert.match(requests[0].url, /ParentId=library-1/);
+  assert.match(requests[0].options.headers.Authorization, /Client="Movie Room"/);
+  assert.match(requests[0].options.headers.Authorization, /Token="server-key"/);
   assert.equal(requests[0].options.headers["X-Emby-Token"], "server-key");
 });
 
@@ -112,6 +114,7 @@ test("Jellyfin provider resolves playback and forwards byte ranges to Jellyfin",
   const streamRequest = requests.find((entry) => entry.url.includes("/Videos/movie-1/stream"));
   assert.match(streamRequest.url, /Static=true/);
   assert.equal(streamRequest.options.headers.Range, "bytes=0-10");
+  assert.match(streamRequest.options.headers.Authorization, /Token="server-key"/);
   assert.equal(streamRequest.options.headers["X-Emby-Token"], "server-key");
 });
 
