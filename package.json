@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "posters": "node scripts/fetch-posters.mjs",
-    "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.local server.js",
+    "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --env-file-if-exists=.env.jellyfin.local server.js",
     "test": "node --test"
   },
   "engines": {
