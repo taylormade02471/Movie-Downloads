@@ -1352,7 +1352,7 @@ function createRequestHandler(options = {}) {
         }
         const itemId = decodeURIComponent(url.pathname.slice("/api/jellyfin/image/".length));
         if (!itemId) throw new HttpError(400, "A Jellyfin item id is required.");
-        const upstream = await context.provider.proxyImage(itemId, request);
+        const upstream = await context.provider.proxyImage(itemId, request, url.searchParams.get("type"));
         await proxyFetchResponse(request, response, upstream);
         return;
       }

@@ -29,6 +29,13 @@ test("Jellyfin provider lists playable movies and episodes with app artwork URLs
             Path: "C:\\Movies\\Toy Story 5.mp4",
             Size: 1234,
             ProductionYear: 2026,
+            RunTimeTicks: 76800000000,
+            CommunityRating: 8.2,
+            OfficialRating: "PG-13",
+            Overview: "A family adventure.",
+            People: [{ Type: "Actor", Name: "Example Actor" }, { Type: "Director", Name: "Example Director" }],
+            Studios: [{ Name: "Taylor-Made Pictures" }],
+            Tags: ["family", "adventure"],
             Genres: ["Family"],
             BackdropImageTags: ["backdrop"],
           },
@@ -51,7 +58,12 @@ test("Jellyfin provider lists playable movies and episodes with app artwork URLs
   const library = await provider.listLibrary();
   assert.equal(library.movies.length, 2);
   assert.equal(library.movies[0].posterUrl, "/api/jellyfin/image/movie-1");
-  assert.equal(library.movies[0].backdropUrl, "/api/jellyfin/image/movie-1");
+  assert.equal(library.movies[0].backdropUrl, "/api/jellyfin/image/movie-1?type=Backdrop");
+  assert.equal(library.movies[0].description, "A family adventure.");
+  assert.equal(library.movies[0].runtime, "2h 08m");
+  assert.equal(library.movies[0].rating, "8.2");
+  assert.deepEqual(library.movies[0].cast, ["Example Actor"]);
+  assert.deepEqual(library.movies[0].director, ["Example Director"]);
   assert.equal(library.movies[1].folder, "Northern Exposure/Season 3");
   assert.equal(library.folders.some((folder) => folder.path === "Northern Exposure/Season 3"), true);
   assert.match(requests[0].url, /\/Items\?/);
