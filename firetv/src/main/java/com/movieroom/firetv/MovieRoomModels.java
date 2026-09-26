@@ -57,14 +57,27 @@ public final class MovieRoomModels {
         public final String folder;
         public final String posterUrl;
         public final long size;
+        public final String overview;
+        public final String year;
+        public final String rating;
+        public final String runtime;
+        public final String genres;
+        public final String contentType;
 
-        public Movie(String id, String title, String fileName, String folder, String posterUrl, long size) {
+        public Movie(String id, String title, String fileName, String folder, String posterUrl, long size,
+                     String overview, String year, String rating, String runtime, String genres, String contentType) {
             this.id = id;
             this.title = title;
             this.fileName = fileName;
             this.folder = folder;
             this.posterUrl = posterUrl;
             this.size = size;
+            this.overview = overview;
+            this.year = year;
+            this.rating = rating;
+            this.runtime = runtime;
+            this.genres = genres;
+            this.contentType = contentType;
         }
 
         public boolean isPlayable() {
@@ -98,7 +111,13 @@ public final class MovieRoomModels {
                             movie.optString("fileName", ""),
                             movie.optString("folder", ""),
                             movie.optString("posterUrl", ""),
-                            movie.optLong("size", 0L)));
+                            movie.optLong("size", 0L),
+                            movie.optString("overview", movie.optString("description", "")),
+                            movie.has("year") ? String.valueOf(movie.optInt("year", 0)) : "",
+                            movie.optString("rating", ""),
+                            movie.optString("runtime", ""),
+                            movie.optJSONArray("genres") == null ? "" : movie.optJSONArray("genres").join(", ").replace("\"", ""),
+                            movie.optString("contentType", "movie")));
                 }
             }
             List<String> folders = new ArrayList<>();

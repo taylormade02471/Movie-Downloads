@@ -199,6 +199,16 @@ public class MainActivity extends Activity {
         return size > 0L ? String.format(Locale.US, "%.0f KB", size / 1024d) : "Still uploading";
     }
 
+    private String displayMetadata(MovieRoomModels.Movie movie) {
+        List<String> parts = new ArrayList<>();
+        if (movie.year != null && !movie.year.isEmpty() && !movie.year.equals("0")) parts.add(movie.year);
+        if (movie.rating != null && !movie.rating.isEmpty()) parts.add("★ " + movie.rating);
+        if (movie.runtime != null && !movie.runtime.isEmpty()) parts.add(movie.runtime);
+        if (movie.genres != null && !movie.genres.isEmpty()) parts.add(movie.genres);
+        if (!parts.isEmpty()) return String.join("  •  ", parts);
+        return displayFolder(movie);
+    }
+
     private String displayFolder(MovieRoomModels.Movie movie) {
         String folder = movie.folder == null ? "" : movie.folder;
         if (folder.isEmpty()) {
@@ -506,11 +516,18 @@ public class MainActivity extends Activity {
         title.setEllipsize(TextUtils.TruncateAt.END);
         card.addView(title);
 
-        TextView meta = text(displayFolder(movie) + "  •  " + formatSize(movie.size), 14);
+        TextView meta = text(displayMetadata(movie) + "  •  " + displayFolder(movie), 14);
         meta.setMaxLines(2);
         meta.setEllipsize(TextUtils.TruncateAt.END);
         meta.setTextColor(movie.isPlayable() ? 0xffa7f3c6 : 0xffffd88a);
         card.addView(meta);
+        if (movie.overview != null && !movie.overview.isEmpty()) {
+            TextView overview = text(movie.overview, 12);
+            overview.setMaxLines(2);
+            overview.setEllipsize(TextUtils.TruncateAt.END);
+            overview.setTextColor(0xffbdb5a2);
+            card.addView(overview);
+        }
 
         card.setOnFocusChangeListener((view, hasFocus) -> {
             view.setScaleX(hasFocus ? 1.04f : 1.0f);
