@@ -11,9 +11,11 @@ test("local provider recursively scans the canonical root and groups seasons", a
   fs.mkdirSync(path.join(root, "TV Shows", "Northern Exposure", "Northern Exposure Season 3"), { recursive: true });
   fs.mkdirSync(path.join(root, "TV Shows", "Jackass", "Season 01"), { recursive: true });
   fs.mkdirSync(path.join(root, "Movies", "Acme"), { recursive: true });
+  fs.mkdirSync(path.join(root, "Movies", "Acme", "Sample"), { recursive: true });
   fs.writeFileSync(path.join(root, "TV Shows", "Northern Exposure", "Northern Exposure Season 3", "Northern Exposure S03E01.avi"), "episode");
   fs.writeFileSync(path.join(root, "TV Shows", "Jackass", "Season 01", "Jackass - S01E01 - Pilot.mkv"), "episode");
   fs.writeFileSync(path.join(root, "Movies", "Acme", "Acme.mp4"), "movie");
+  fs.writeFileSync(path.join(root, "Movies", "Acme", "Sample", "Acme.sample.mkv"), "sample");
 
   const library = await createLocalProvider({ moviesDir: root }).listLibrary();
   assert.equal(library.movies.length, 3);
