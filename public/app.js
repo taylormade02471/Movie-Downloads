@@ -242,6 +242,7 @@ function createApp({
   let progressWriteInFlight = null;
   let activeFolder = "all";
   let activeCategory = "all";
+  let activeLibraryView = "movies";
   let searchTerm = "";
   let playerVisible = false;
   let wakeLock = null;
@@ -1313,6 +1314,7 @@ function createApp({
       countLabel.textContent = String(count);
       button.append(icon, text, countLabel);
       button.addEventListener("click", () => {
+        activeLibraryView = "movies";
         activeFolder = folderPath;
         renderLibrary();
       });
@@ -1339,6 +1341,16 @@ function createApp({
     }
 
     const documentRef = categoryShelf.ownerDocument;
+    const collectionFolders = filterMovieFolders(buildFoldersFromMovies(allMovies, allFolders))
+      .filter((folder) => isCollectionFolder(folder.path));
+    const seriesCount = new Set(allMovies
+      .filter((movie) => movie.contentType === "episode" || movie.seriesName)
+      .map((movie) => movie.seriesPath || movie.seriesName)
+      .filter(Boolean)).size;
+    const viewGroups = [
+      ["movies", "Movies", allMovies.filter((movie) => !isSampleMovie(movie) && movie.contentType !== "episode" && !movie.seriesName).length],
+      ["collections", "Collections", collectionFolders.length + seriesCount],
+    ];
     const categoryGroups = [
       ["all", "All"],
       ["adults", "Adults"],
@@ -1350,7 +1362,23 @@ function createApp({
       ["alpha-i-n", "I-N"],
       ["alpha-o-z", "O-Z"],
     ];
-    const buttons = categoryGroups.map(([category, label]) => {
+    const buttons = viewGroups.map(([view, label, count]) => {
+      const button = documentRef.createElement("button");
+      button.type = "button";
+      button.className = "category-chip library-view-chip";
+      button.textContent = `${label}${count ? ` ${count}` : ""}`;
+      button.setAttribute("aria-pressed", activeLibraryView === view ? "true" : "false");
+      if (activeLibraryView === view) {
+        button.classList.add("active");
+      }
+      button.addEventListener("click", () => {
+        activeLibraryView = view;
+        activeFolder = "all";
+        renderLibrary();
+      });
+      return button;
+    });
+    buttons.push(...categoryGroups.map(([category, label]) => {
       const button = documentRef.createElement("button");
       button.type = "button";
       button.className = "category-chip";
@@ -1369,8 +1397,12 @@ function createApp({
         renderLibrary();
       });
       return button;
-    });
+    }));
     categoryShelf.replaceChildren(...buttons);
+    const folderPanel = folderShelf && folderShelf.parentElement;
+    if (folderPanel) {
+      folderPanel.hidden = activeLibraryView !== "collections";
+    }
   }
 
   function installHoverPreview(card, poster, movie, ready) {
@@ -1698,6 +1730,7 @@ function createApp({
       info.append(title, meta, badge);
       button.append(poster, info);
       button.addEventListener("click", () => {
+        activeLibraryView = "movies";
         activeFolder = collection.collectionPath;
         renderLibrary();
         if (movieGrid && typeof movieGrid.scrollIntoView === "function") {
@@ -1714,12 +1747,22 @@ function createApp({
     const standaloneMovies = filteredMovies.filter((movie) => (
       !episodeIds.has(movie.id) && !collectionMovieIds.has(movie.id)
     ));
-    const cards = [
-      ...seriesGroups.map(createSeriesCard),
-      ...collectionGroups.map(createCollectionCard),
-      ...standaloneMovies.map(createMovieCard),
-    ];
+    const cards = activeLibraryView === "collections"
+      ? [
+        ...seriesGroups.map(createSeriesCard),
+        ...collectionGroups.map(createCollectionCard),
+      ]
+      : standaloneMovies.map(createMovieCard);
 
+    if (!cards.length) {
+      const emptyState = documentRef.createElement("p");
+      emptyState.className = "empty-state";
+      emptyState.textContent = activeLibraryView === "collections"
+        ? "No collections or series have been organized yet."
+        : "No matching movies here yet.";
+      movieGrid.replaceChildren(emptyState);
+      return;
+    }
     movieGrid.replaceChildren(...cards);
   }
 
