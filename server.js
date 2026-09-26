@@ -737,6 +737,33 @@ function createTvDeviceManager(
   }
 
   return {
+    async createPasswordDevice({ deviceLabel, profileId }) {
+      const createdAt = now();
+      const expiresAt = createdAt + deviceTtlMs;
+      const deviceId = crypto.randomBytes(18).toString("base64url");
+      const rawSecret = crypto.randomBytes(32).toString("base64url");
+      const deviceToken = `${deviceId}.${rawSecret}`;
+      let assignedProfileId;
+      try {
+        assignedProfileId = normalizeProfileId(profileId || "home");
+      } catch {
+        throw new HttpError(400, "A valid viewer profile is required.");
+      }
+      await store.set(
+        `${TV_DEVICE_PREFIX}${deviceId}`,
+        JSON.stringify({
+          tokenHash: hashSecret(rawSecret, authConfig.sessionSecret),
+          deviceLabel: String(deviceLabel || "Android").trim().slice(0, 80) || "Android",
+          profileId: assignedProfileId,
+          createdAt,
+          expiresAt,
+          revokedAt: null,
+        }),
+        deviceTtlMs,
+      );
+      return { status: "approved", deviceId, deviceToken, profileId: assignedProfileId, expiresAt };
+    },
+
     async createPairing({ deviceLabel, pollSecret }) {
       if (!pollSecret) {
         throw new HttpError(400, "A polling secret is required.");
@@ -1102,6 +1129,21 @@ function createRequestHandler(options = {}) {
           pollSecret: typeof body.pollSecret === "string" ? body.pollSecret : "",
         });
         await sendJson(response, 201, pairing, noStoreHeaders());
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/tv/password-login") {
+        await context.tvPairingRateLimiter.recordAndAssert(request);
+        const body = await readJsonBody(request, context.authConfig.bodyLimit);
+        const password = typeof body.password === "string" ? body.password : "";
+        if (!safeCompare(password, context.authConfig.password)) {
+          throw new HttpError(401, "The Movie Room password was not accepted.");
+        }
+        const device = await context.tvDeviceManager.createPasswordDevice({
+          deviceLabel: typeof body.deviceLabel === "string" ? body.deviceLabel : "Android",
+          profileId: readViewerProfile(body.profileId),
+        });
+        await sendJson(response, 200, device, noStoreHeaders());
         return;
       }
 

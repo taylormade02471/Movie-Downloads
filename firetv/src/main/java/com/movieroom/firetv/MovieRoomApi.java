@@ -29,6 +29,14 @@ public final class MovieRoomApi {
         return MovieRoomModels.Pairing.fromJson(request("POST", "/api/tv/pairings", "", body.toString()));
     }
 
+    public String passwordLogin(String password, String deviceLabel) throws Exception {
+        JSONObject body = new JSONObject();
+        body.put("password", password);
+        body.put("deviceLabel", deviceLabel);
+        JSONObject response = new JSONObject(request("POST", "/api/tv/password-login", "", body.toString()));
+        return response.getString("deviceToken");
+    }
+
     public MovieRoomModels.PairingStatus pollPairing(String pairingId, String pollSecret) throws Exception {
         return MovieRoomModels.PairingStatus.fromJson(request("GET", "/api/tv/pairings/" + pairingId, pollSecret, ""));
     }

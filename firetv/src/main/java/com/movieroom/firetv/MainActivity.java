@@ -11,11 +11,13 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.GridLayout;
 import android.widget.ImageView;
@@ -24,6 +26,8 @@ import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.webkit.WebView;
+import android.webkit.WebSettings;
 
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
@@ -61,6 +65,10 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         tokenStore = new DeviceTokenStore(this);
         api = new MovieRoomApi(BuildConfig.MOVIE_ROOM_BASE_URL);
+        if (!isTelevision()) {
+            showMobileWebApp();
+            return;
+        }
         if (tokenStore.getDeviceToken().isEmpty()) {
             showPairingScreen();
         } else {
@@ -281,6 +289,65 @@ public class MainActivity extends Activity {
                 });
             }
         }).start();
+    }
+
+    private void showPasswordScreen() {
+        pairingGeneration += 1;
+        setScreen();
+        TextView brand = text("TAYLOR-MADE MOVIES", 30);
+        brand.setTextColor(0xffffd166);
+        brand.setGravity(Gravity.CENTER);
+        root.addView(brand);
+        TextView subtitle = text("MOVIE ROOM  •  ANDROID", 18);
+        subtitle.setGravity(Gravity.CENTER);
+        root.addView(subtitle);
+        TextView prompt = text("Enter your Movie Room password to sign in.", 20);
+        prompt.setGravity(Gravity.CENTER);
+        root.addView(prompt);
+        EditText password = new EditText(this);
+        password.setHint("Movie Room password");
+        password.setTextColor(0xffffffff);
+        password.setHintTextColor(0xffaaa39a);
+        password.setSingleLine(true);
+        password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        root.addView(password, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(58)));
+        TextView status = text("", 17);
+        status.setGravity(Gravity.CENTER);
+        root.addView(status);
+        Button signIn = button("Enter Movie Room");
+        signIn.setTextColor(0xff17120a);
+        signIn.setBackground(roundedBackground(0xffffd166, 0xffffd166, 1));
+        signIn.setOnClickListener(view -> {
+            String value = password.getText().toString();
+            if (value.isEmpty()) { status.setText("Enter the password first."); return; }
+            signIn.setEnabled(false);
+            status.setText("Signing in...");
+            new Thread(() -> {
+                try {
+                    String deviceToken = api.passwordLogin(value, "Android");
+                    tokenStore.saveDeviceToken(deviceToken);
+                    handler.post(this::showLibraryScreen);
+                } catch (Exception error) {
+                    handler.post(() -> { signIn.setEnabled(true); status.setText("Password not accepted or service unavailable."); });
+                }
+            }).start();
+        });
+        root.addView(signIn);
+    }
+
+    private void showMobileWebApp() {
+        stopKeepScreenOn();
+        WebView webView = new WebView(this);
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setBuiltInZoomControls(false);
+        settings.setDisplayZoomControls(false);
+        webView.setBackgroundColor(0xff090a0b);
+        webView.loadUrl(BuildConfig.MOVIE_ROOM_BASE_URL);
+        setContentView(webView);
     }
 
     private void pollPairing(String pairingId, String pollSecret, TextView status, int generation) {
