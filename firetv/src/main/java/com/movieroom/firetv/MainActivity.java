@@ -94,9 +94,9 @@ public class MainActivity extends Activity {
         leavePlayerFullscreen();
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(48, 40, 48, 40);
+        root.setPadding(dp(42), dp(30), dp(42), dp(30));
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setBackgroundColor(0xff0f0f0f);
+        root.setBackgroundColor(0xff090a0b);
         setContentView(root);
     }
 
@@ -325,13 +325,25 @@ public class MainActivity extends Activity {
     private void showLibraryScreen() {
         pairingGeneration += 1;
         setScreen();
-        root.addView(text("Movie Room", 34));
+        TextView brand = text("TAYLOR-MADE MOVIES", 32);
+        brand.setTextColor(0xffffd166);
+        brand.setTypeface(null, android.graphics.Typeface.BOLD);
+        root.addView(brand);
+        TextView subtitle = text("MOVIE ROOM  •  YOUR PRIVATE CINEMA", 16);
+        subtitle.setTextColor(0xffbdb5a2);
+        root.addView(subtitle);
+        TextView hero = text("Recently downloaded\nContinue watching from where you left off.", 24);
+        hero.setTextColor(0xfff5f5f5);
+        hero.setPadding(0, dp(16), 0, dp(14));
+        root.addView(hero);
         TextView status = text("Loading library...", 22);
         root.addView(status);
         LinearLayout actions = new LinearLayout(this);
         actions.setGravity(Gravity.CENTER);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         Button refresh = button("Refresh Library");
+        refresh.setTextColor(0xff17120a);
+        refresh.setBackground(roundedBackground(0xffffd166, 0xffffd166, 1));
         refresh.setOnClickListener(view -> showLibraryScreen());
         Button unpair = button("Unpair");
         unpair.setOnClickListener(view -> {
@@ -398,7 +410,7 @@ public class MainActivity extends Activity {
         card.setClickable(movie.isPlayable());
         card.setEnabled(movie.isPlayable());
         card.setPadding(dp(10), dp(10), dp(10), dp(10));
-        card.setBackground(roundedBackground(0xff181818, 0xff333333, 1));
+        card.setBackground(roundedBackground(0xff141414, 0xff3b3424, 1));
 
         GridLayout.LayoutParams params = new GridLayout.LayoutParams();
         params.width = dp(270);
@@ -408,7 +420,8 @@ public class MainActivity extends Activity {
 
         TextView fallback = text(initials(movie.title), 42);
         fallback.setGravity(Gravity.CENTER);
-        fallback.setBackground(roundedBackground(0xff9d1731, 0xffff335c, 1));
+        fallback.setBackground(roundedBackground(0xff352b16, 0xffffd166, 1));
+        fallback.setTextColor(0xffffd166);
         card.addView(fallback, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(152)));
@@ -428,7 +441,7 @@ public class MainActivity extends Activity {
         card.setOnFocusChangeListener((view, hasFocus) -> {
             view.setScaleX(hasFocus ? 1.04f : 1.0f);
             view.setScaleY(hasFocus ? 1.04f : 1.0f);
-            view.setBackground(roundedBackground(hasFocus ? 0xff252525 : 0xff181818, hasFocus ? 0xffff335c : 0xff333333, 2));
+            view.setBackground(roundedBackground(hasFocus ? 0xff282218 : 0xff141414, hasFocus ? 0xffffd166 : 0xff3b3424, 2));
         });
         card.setOnClickListener(view -> {
             if (movie.isPlayable()) {
@@ -463,7 +476,7 @@ public class MainActivity extends Activity {
                     ImageView poster = new ImageView(this);
                     poster.setImageBitmap(bitmap);
                     poster.setBackgroundColor(0xff050505);
-                    poster.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+                    poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
                     card.removeView(fallback);
                     card.addView(poster, index, new LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -510,7 +523,8 @@ public class MainActivity extends Activity {
         playerView.setKeepScreenOn(true);
         startKeepScreenOn();
         DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(30_000, 300_000, 2_500, 5_000)
+                .setBufferDurationsMs(60_000, 300_000, 5_000, 10_000)
+                .setPrioritizeTimeOverSizeThresholds(true)
                 .build();
         player = new ExoPlayer.Builder(this)
                 .setLoadControl(loadControl)
