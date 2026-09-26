@@ -4,6 +4,7 @@ const MOM_MOVIE_PATTERN = /\b(?:mom|moms|northern\s+exposure|romance|romantic|dr
 const TECHNICAL_FOLDER_PATTERN = /^(?:subs?|images?|drawable(?:[-_ ]?nodpi)?|res|src|main|java|providers?|firetv|api|cast|playback|stream|tv|pairings?|docs?|test|gradle|node_modules?|skills?|agents?|patterns?|search|commands|migrations|performance|advanced features)$/i;
 const LIBRARY_ROOT_FOLDER_PATTERN = /^(?:movies?|movie downloads?|my movie downloads?|tv shows?|shows?|series|library)$/i;
 const SEASON_FOLDER_PATTERN = /^season\s+\d+/i;
+const COLLECTION_FOLDER_PATTERN = /(?:^|[\s_-])collection(?:$|[\s_-])/i;
 const ALPHA_CATEGORIES = [
   ["alpha-a-c", "A-C", /^[A-C]/i],
   ["alpha-d-h", "D-H", /^[D-H]/i],
@@ -73,6 +74,18 @@ function isMoviePlayable(movie) {
   return (Number(movie && movie.size) || 0) > 0;
 }
 
+function isSampleMovie(movie) {
+  const folder = String((movie && movie.folder) || "");
+  const fileName = String((movie && movie.fileName) || "");
+  return folder.split(/[\\/]/).some((part) => /^samples?$/i.test(part.trim()))
+    || /(?:^|[._ -])samples?(?:[._ -]|$)/i.test(fileName.replace(/\.[^.]+$/, ""));
+}
+
+function isCollectionFolder(folderPath) {
+  const parts = String(folderPath || "").split(/[\\/]/).filter(Boolean);
+  return COLLECTION_FOLDER_PATTERN.test(parts[parts.length - 1] || "");
+}
+
 function filterMovieFolders(folders) {
   const candidates = (Array.isArray(folders) ? folders : [])
     .filter((folder) => folder && folder.path && !folder.hidden && Number(folder.movieCount) > 0)
@@ -86,9 +99,13 @@ function filterMovieFolders(folders) {
     });
 
   const seriesRoots = new Set();
+  const collectionRoots = new Set();
   for (const folder of candidates) {
     const parts = String(folder.path).split("/").filter(Boolean);
     const lastPart = parts[parts.length - 1] || "";
+    if (COLLECTION_FOLDER_PATTERN.test(lastPart)) {
+      collectionRoots.add(folder.path);
+    }
     if (!SEASON_FOLDER_PATTERN.test(lastPart)) {
       continue;
     }
@@ -109,6 +126,12 @@ function filterMovieFolders(folders) {
       }
       if ([...seriesRoots].some((seriesPath) => folder.path.startsWith(`${seriesPath}/`))) {
         return false;
+      }
+      if ([...collectionRoots].some((collectionPath) => folder.path.startsWith(`${collectionPath}/`))) {
+        return false;
+      }
+      if (collectionRoots.has(folder.path)) {
+        return true;
       }
       return !candidates.some((other) => (
         other.path !== folder.path && other.path.startsWith(`${folder.path}/`)
@@ -1470,7 +1493,7 @@ function createApp({
     }
 
     const documentRef = movieGrid.ownerDocument;
-    const filteredMovies = allMovies.filter(movieMatchesFilter);
+    const filteredMovies = allMovies.filter((movie) => !isSampleMovie(movie)).filter(movieMatchesFilter);
 
     if (!filteredMovies.length) {
       const emptyState = documentRef.createElement("p");
@@ -1616,11 +1639,84 @@ function createApp({
       return button;
     }
 
+    function collectionGroupsForMovies(movies) {
+      if (activeFolder !== "all") {
+        return [];
+      }
+
+      const collectionFolders = filterMovieFolders(buildFoldersFromMovies(allMovies, allFolders))
+        .filter((folder) => isCollectionFolder(folder.path));
+      return collectionFolders.map((folder) => {
+        const members = movies.filter((movie) => (
+          movie.folder === folder.path || movie.folder.startsWith(`${folder.path}/`)
+        ));
+        if (!members.length) return null;
+        return {
+          title: folder.name || folder.path.split("/").pop() || "Collection",
+          collectionPath: folder.path,
+          posterUrl: (members.find((movie) => movie.posterUrl) || {}).posterUrl || "",
+          movies: members,
+        };
+      }).filter(Boolean);
+    }
+
+    function createCollectionCard(collection) {
+      const button = documentRef.createElement("button");
+      button.type = "button";
+      button.className = "movie-card collection-card";
+      button.dataset.collectionPath = collection.collectionPath;
+      const poster = documentRef.createElement("span");
+      poster.className = "poster";
+      const fallback = documentRef.createElement("span");
+      fallback.className = "poster-fallback";
+      const initials = documentRef.createElement("strong");
+      initials.textContent = movieInitials({ title: collection.title });
+      const fallbackTitle = documentRef.createElement("span");
+      fallbackTitle.textContent = collection.title;
+      fallback.append(initials, fallbackTitle);
+      poster.append(fallback);
+      if (collection.posterUrl) {
+        const image = documentRef.createElement("img");
+        image.alt = `${collection.title} collection cover`;
+        image.loading = "lazy";
+        image.decoding = "async";
+        image.src = collection.posterUrl;
+        image.addEventListener("error", () => image.remove(), { once: true });
+        poster.prepend(image);
+      }
+      const info = documentRef.createElement("span");
+      info.className = "movie-info";
+      const title = documentRef.createElement("span");
+      title.className = "movie-title";
+      title.textContent = collection.title;
+      const meta = documentRef.createElement("span");
+      meta.className = "movie-meta";
+      meta.textContent = `${collection.movies.length} movie${collection.movies.length === 1 ? "" : "s"}`;
+      const badge = documentRef.createElement("span");
+      badge.className = "ready-badge";
+      badge.textContent = "Open collection";
+      info.append(title, meta, badge);
+      button.append(poster, info);
+      button.addEventListener("click", () => {
+        activeFolder = collection.collectionPath;
+        renderLibrary();
+        if (movieGrid && typeof movieGrid.scrollIntoView === "function") {
+          movieGrid.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
+      return button;
+    }
+
     const seriesGroups = seriesGroupForMovies(filteredMovies);
     const episodeIds = new Set(seriesGroups.flatMap((series) => series.episodes.map((movie) => movie.id)));
-    const standaloneMovies = filteredMovies.filter((movie) => !episodeIds.has(movie.id));
+    const collectionGroups = collectionGroupsForMovies(filteredMovies);
+    const collectionMovieIds = new Set(collectionGroups.flatMap((collection) => collection.movies.map((movie) => movie.id)));
+    const standaloneMovies = filteredMovies.filter((movie) => (
+      !episodeIds.has(movie.id) && !collectionMovieIds.has(movie.id)
+    ));
     const cards = [
       ...seriesGroups.map(createSeriesCard),
+      ...collectionGroups.map(createCollectionCard),
       ...standaloneMovies.map(createMovieCard),
     ];
 

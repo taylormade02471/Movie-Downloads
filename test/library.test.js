@@ -5,6 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const { createLocalProvider } = require("../lib/providers/local");
+const { isSampleVideo } = require("../lib/library");
 
 test("local provider recursively scans the canonical root and groups seasons", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "movie-room-library-"));
@@ -28,4 +29,5 @@ test("local provider recursively scans the canonical root and groups seasons", a
   );
   assert.equal(library.movies.find((movie) => movie.fileName.endsWith(".avi")).contentType, "episode");
   assert.equal(library.movies.find((movie) => movie.title === "Acme").contentType, "movie");
+  assert.equal(isSampleVideo("Movies/Acme/Sample/Acme.sample.mkv", "Acme.sample.mkv"), true);
 });

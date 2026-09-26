@@ -119,7 +119,7 @@ test("organizes the library into family categories and hides technical folders",
       { path: "Movie Room Application Mac Copy/firetv/src", name: "src", movieCount: 0 },
     ]).map((folder) => folder.path),
     [
-      "Home Alone Collection/Home Alone Complete Collection",
+      "Home Alone Collection",
       "TV Shows/Northern Exposure",
     ],
   );
