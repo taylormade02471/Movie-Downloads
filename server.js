@@ -15,6 +15,7 @@ const {
 const { createLocalProvider } = require("./lib/providers/local");
 const { createOneDriveProvider } = require("./lib/providers/onedrive");
 const { createJellyfinProvider } = require("./lib/providers/jellyfin");
+const { createHybridProvider } = require("./lib/providers/hybrid");
 const { createKeyValueStore } = require("./lib/store");
 const { createViewerStateManager, normalizeProfileId } = require("./lib/viewer-state");
 
@@ -928,6 +929,14 @@ function createProvider(options = {}) {
     });
   }
 
+  if (providerName === "hybrid" || providerName === "jellyfin-onedrive") {
+    const fetchImpl = options.fetchImpl || fetch;
+    return createHybridProvider({
+      jellyfinProvider: createJellyfinProvider({ env, fetchImpl }),
+      oneDriveProvider: createOneDriveProvider({ env, fetchImpl, store: options.store }),
+    });
+  }
+
   return createLocalProvider({
     moviesDir: options.moviesDir || path.join(__dirname, "movies"),
   });
@@ -1347,7 +1356,7 @@ function createRequestHandler(options = {}) {
 
       if ((request.method === "GET" || request.method === "HEAD") && url.pathname.startsWith("/api/jellyfin/image/")) {
         await context.sessionManager.get(request, true);
-        if (context.provider.kind !== "jellyfin") {
+        if (typeof context.provider.proxyImage !== "function") {
           throw new HttpError(404, "Jellyfin artwork is not enabled.");
         }
         const itemId = decodeURIComponent(url.pathname.slice("/api/jellyfin/image/".length));

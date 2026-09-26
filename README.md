@@ -96,6 +96,12 @@ Jellyfin can stay on the Windows computer as the library, metadata, artwork, and
 
 Vercel cannot reach `127.0.0.1` on the Windows computer. Keep the hosted deployment on OneDrive, or use a deliberately secured VPN/reverse proxy if Jellyfin must be reached remotely; never expose Jellyfin's admin/API port directly to the public Internet.
 
+### Jellyfin metadata with OneDrive cloud playback
+
+Set `MOVIE_PROVIDER=hybrid` to use Jellyfin for titles, seasons, posters, descriptions, ratings, and organization while resolving playback from the matching OneDrive file. Configure both the `JELLYFIN_*` and `ONEDRIVE_*` values shown above. Movie Room keeps Jellyfin item IDs for viewer history and UI state, matches them to OneDrive by the underlying filename, proxies artwork from Jellyfin, and returns a fresh OneDrive playback URL when a movie is selected.
+
+This mode does not copy media into Jellyfin. Jellyfin must be reachable by the Movie Room server for catalog and artwork requests. A Vercel deployment cannot use a Jellyfin URL on `127.0.0.1`; use hybrid mode on the Windows-hosted Movie Room server unless Jellyfin is available through a deliberately secured private network path.
+
 ## Private Fire TV app
 
 The private Fire TV app lives in `firetv/`. It is for sideloading onto the owner's Fire TV devices and is not an Amazon Appstore submission. Its launcher banner is the black-and-gold `TaylorMade Movies` cover artwork.
